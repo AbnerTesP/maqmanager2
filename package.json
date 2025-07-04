@@ -1,0 +1,35 @@
+{
+  "name": "testmaq",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "node backend/server.js",
+    "dev:server": "nodemon backend/server.js",
+    "dev:client": "npm start --prefix frontend",
+    "dev": "concurrently \"npm run dev:server\" \"npm run dev:client\""
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "description": "",
+  "dependencies": {
+    "@testing-library/jest-dom": "^6.6.3",
+    "@testing-library/react": "^16.2.0",
+    "@testing-library/user-event": "^14.6.1",
+    "axios": "^1.7.9",
+    "bcrypt": "^5.1.1",
+    "bootstrap": "^5.3.3",
+    "jsonwebtoken": "^9.0.2",
+    "mysql2": "^3.12.0",
+    "react-data-table-component": "^7.6.2",
+    "react-data-table-component-extensions": "^1.6.0",
+    "web-vitals": "^4.2.4",
+    "xlsx": "^0.18.5"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2",
+    "nodemon": "^3.1.9"
+  }
+}

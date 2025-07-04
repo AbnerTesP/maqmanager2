@@ -1,0 +1,73 @@
+.navbar {
+    background: radial-gradient(circle, #DFD7BB, #B6AD91);
+    color: rgb(85, 82, 82);
+    margin-bottom: 20px;
+    z-index: 1000;
+}
+
+body {
+    font-family: 'Montserrat', sans-serif;
+    margin: 0;
+}
+
+.navbar-nav {
+    display: flex;
+    align-items: center;
+}
+
+.navbar-brand {
+    font-size: 24px;
+    font-weight: bold;
+    color: rgb(85, 82, 82);
+}
+
+.navbar-brand:hover {
+    color: #6c757d;
+    text-decoration: none;
+}
+
+.navbar-nav .nav-link {
+    font-weight: bold;
+    padding: 10px 15px;
+    text-transform: uppercase;
+    transition: 0.5s;
+    background-size: 200% auto;
+    color: rgb(85, 82, 82);
+    border-radius: 10px;
+    margin: 5px;
+    text-align: center;
+}
+
+.navbar-nav .nav-link:hover {
+    text-decoration: underline;
+    color: #f03d10;
+}
+
+.nav-link-1 {
+    background-image: linear-gradient(to right, #e2cb87 0%, #f5c951 51%, #f5b428 100%);
+}
+
+.nav-link-2 {
+    background-image: linear-gradient(to right, #e2cb87 0%, #f5c951 51%, #f5b428 100%);
+}
+
+.nav-link-3 {
+    background-image: linear-gradient(to right, #e2cb87 0%, #f5c951 51%, #f5b428 100%);
+}
+
+.logout-btn {
+    background-image: linear-gradient(to right, #e2cb87 0%, #f5c951 51%, #f5b428 100%);
+}
+
+.navbar-toggler {
+    border: none;
+}
+
+.navbar-toggler:focus {
+    outline: none;
+    box-shadow: none;
+}
+
+.logout {
+    margin-right: auto;
+}
