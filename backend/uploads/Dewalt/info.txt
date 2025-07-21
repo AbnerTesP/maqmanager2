@@ -1,0 +1,5 @@
+ID: 8
+Date: 2025-03-05
+Tipo: Martelo de Perfuração
+Marca: Dewalt
+Modelo: BH22

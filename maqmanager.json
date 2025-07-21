@@ -1,0 +1,22 @@
+[
+{"type":"header","version":"5.2.1","comment":"Export to JSON plugin for PHPMyAdmin"},
+{"type":"database","name":"maqmanager"},
+{"type":"table","name":"ficheiros","database":"maqmanager","data":
+[
+{"id":"5","nome":"RebarbadoraAngular.pdf","caminho":"uploads\/RebarbadoraAngular.pdf","maquina_id":"4"}
+]
+}
+,{"type":"table","name":"maquinas","database":"maqmanager","data":
+[
+{"id":"1","tipo":"Berbequins e Aparafusadoras","marca":"Festool","modelo":"CXS12 2,5-Plus","date":"2025-02-20"},
+{"id":"2","tipo":"Rebarbadora Acabamentos XR 18V","marca":"Dewalt","modelo":"DCG412M2-QW","date":"2025-02-21"},
+{"id":"3","tipo":"Martelo","marca":"Dewalt","modelo":"DCH172NT-XJ","date":"2025-02-21"},
+{"id":"4","tipo":"Rebarbadora angular sem fio","marca":"Metabo","modelo":" WPB 36-18 LTX BL 24-230 Quick","date":"2025-02-21"}
+]
+}
+,{"type":"table","name":"pecas","database":"maqmanager","data":
+[
+{"id":"3","tipopeca":"Adaptador Angular","marca":"Dewalt","maquinas_id":"2","modelo_maquina":""}
+]
+}
+]

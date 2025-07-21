@@ -1,13 +1,19 @@
 {
-  "name": "testmaq",
+  "name": "maqmanager",
   "version": "1.0.0",
-  "main": "index.js",
+  "main": "main.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "start": "node backend/server.js",
     "dev:server": "nodemon backend/server.js",
     "dev:client": "npm start --prefix frontend",
-    "dev": "concurrently \"npm run dev:server\" \"npm run dev:client\""
+    "dev": "concurrently \"npm run dev:server\" \"npm run dev:client\"",
+    "electron": "electron .",
+    "dist": "electron-builder",
+    "build:frontend": "cd frontend && npm run build",
+    "build:server": "pkg backend/server.js --targets node16-win-x64 --out-dir dist",
+    "build:client": "npm run build --prefix frontend",
+    "package": "npm run build:frontend && electron-builder"
   },
   "keywords": [],
   "author": "",
@@ -21,15 +27,60 @@
     "axios": "^1.7.9",
     "bcrypt": "^5.1.1",
     "bootstrap": "^5.3.3",
+    "electron-is-dev": "^2.0.0",
+    "express-rate-limit": "^7.5.0",
+    "file-saver": "^2.0.5",
+    "helmet": "^8.1.0",
     "jsonwebtoken": "^9.0.2",
-    "mysql2": "^3.12.0",
+    "jspdf": "^2.5.2",
+    "jspdf-autotable": "^3.8.4",
+    "multer": "^1.4.5-lts.1",
+    "mysql2": "^3.14.1",
+    "open": "^10.1.0",
+    "pdfkit": "^0.17.1",
+    "promise": "^8.3.0",
+    "react": "^18.2.0",
+    "react-bootstrap": "^2.10.9",
+    "react-csv": "^2.2.2",
+    "react-data-export": "^0.6.0",
     "react-data-table-component": "^7.6.2",
     "react-data-table-component-extensions": "^1.6.0",
+    "react-datepicker": "^8.1.0",
+    "react-dom": "^18.2.0",
+    "react-router-dom": "^7.6.3",
     "web-vitals": "^4.2.4",
     "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "concurrently": "^9.1.2",
+    "electron": "^34.2.0",
+    "electron-builder": "^23.6.0",
+    "electron-is-dev": "^2.0.0",
     "nodemon": "^3.1.9"
+  },
+  "build": {
+    "appId": "com.example.maqmanager",
+    "win": {
+      "target": "nsis",
+      "icon": "path/to/your/icon.ico"
+    }
+  },
+  "eslintConfig": {
+    "extends": [
+      "react-app",
+      "react-app/jest"
+    ]
+  },
+  "browserslist": {
+    "production": [
+      ">0.2%",
+      "not dead",
+      "not op_mini all"
+    ],
+    "development": [
+      "last 1 chrome version",
+      "last 1 firefox version",
+      "last 1 safari version"
+    ]
   }
 }
