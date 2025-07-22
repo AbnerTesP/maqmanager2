@@ -34,6 +34,7 @@
     "jsonwebtoken": "^9.0.2",
     "jspdf": "^2.5.2",
     "jspdf-autotable": "^3.8.4",
+    "lucide-react": "^0.525.0",
     "multer": "^1.4.5-lts.1",
     "mysql2": "^3.14.1",
     "open": "^10.1.0",
@@ -47,7 +48,9 @@
     "react-data-table-component-extensions": "^1.6.0",
     "react-datepicker": "^8.1.0",
     "react-dom": "^18.2.0",
+    "react-modal": "^3.16.3",
     "react-router-dom": "^7.6.3",
+    "tailwindcss": "^4.1.11",
     "web-vitals": "^4.2.4",
     "xlsx": "^0.18.5"
   },

@@ -1,55 +1,37 @@
 require("dotenv").config()
-
-
-
 const express = require("express")
 const mysql = require("mysql2/promise")
 const cors = require("cors")
-const multer = require("multer")
-const path = require("path")
-const fs = require("fs").promises
 const PDFDocument = require("pdfkit")
+const fs = require("fs")
+const path = require("path")
 
 const app = express()
-app.use(express.json())
+
+// Middlewares
 app.use(cors())
-
-
-// Servir arquivos estáticos da pasta 'uploads'
-app.use("/uploads", express.static(path.join(__dirname, "uploads")))
+app.use(express.json())
 
 // POOL DE CONEXÕES
-const pool = mysql.createPool({
-    host: process.env.DB_HOST,
-    user: process.env.DB_USER,
-    password: process.env.DB_PASSWORD,
-    database: process.env.DB_NAME,
+const dbConfig = {
+    host: process.env.DB_HOST || "localhost",
+    user: process.env.DB_USER || "root",
+    password: process.env.DB_PASSWORD || "",
+    database: process.env.DB_NAME || "reparacoes",
+    port: process.env.DB_PORT || 3306,
     waitForConnections: true,
     connectionLimit: 10,
     queueLimit: 0,
-})
-
-function toNull(value) {
-    return value === undefined || value === "" ? null : value
+    acquireTimeout: 60000,
+    timeout: 60000,
+    reconnect: true,
+    idleTimeout: 300000,
+    maxIdle: 10,
+    enableKeepAlive: true,
+    keepAliveInitialDelay: 0,
 }
 
-const handleQueryError = (err, res, message) => {
-    console.error(message, err)
-    res.status(500).json({ message })
-}
-
-const storage = multer.diskStorage({
-    destination: (req, file, cb) => {
-        cb(null, path.join(__dirname, "uploads"))
-    },
-    filename: (req, file, cb) => {
-        cb(null, file.originalname)
-    },
-})
-
-const upload = multer({ storage })
-
-// ==================== FUNÇÃO PARA GERAR PDF ====================
+const pool = mysql.createPool(dbConfig)
 
 async function generateRepairPDF(reparacaoId) {
     try {
@@ -57,12 +39,12 @@ async function generateRepairPDF(reparacaoId) {
 
         // Buscar dados da reparação
         const [reparacao] = await pool.execute(
-            `SELECT r.*, c.nome as cliente_nome, c.morada as cliente_morada, 
-               c.numero_interno as cliente_numero, c.telefone as cliente_telefone,
-               c.email as cliente_email, c.nif as cliente_nif
-       FROM reparacao r
-       LEFT JOIN cliente c ON r.cliente_id = c.id
-       WHERE r.id = ?`,
+            `SELECT r.*, c.nome as cliente_nome, c.morada as cliente_morada,
+                c.numero_interno as cliente_numero, c.telefone as cliente_telefone,
+                c.email as cliente_email, c.nif as cliente_nif
+            FROM reparacao r
+            LEFT JOIN cliente c ON r.cliente_id = c.id
+            WHERE r.id = ?`,
             [reparacaoId],
         )
 
@@ -75,610 +57,1071 @@ async function generateRepairPDF(reparacaoId) {
 
         // Buscar peças da reparação
         const [pecas] = await pool.execute(
-            `SELECT tipopeca, marca, quantidade, 
-               COALESCE(preco_unitario, 0) as preco_unitario, 
-               COALESCE(preco_total, 0) as preco_total
-       FROM pecas_reparacao 
-       WHERE reparacao_id = ?
-       ORDER BY tipopeca ASC`,
+            `SELECT tipopeca, marca, quantidade,
+                COALESCE(preco_unitario, 0) as preco_unitario,
+                COALESCE(preco_total, 0) as preco_total,
+                COALESCE(desconto_percentual, 0) as desconto_percentual,
+                COALESCE(preco_com_desconto, preco_unitario) as preco_com_desconto,
+                COALESCE(observacao, '') as observacao
+            FROM pecas_reparacao 
+            WHERE reparacao_id = ?
+            ORDER BY tipopeca ASC`,
             [reparacaoId],
         )
 
         console.log(`📦 Encontradas ${pecas.length} peças`)
 
         // Criar PDF
-        const doc = new PDFDocument({ margin: 50, size: "A4" });
-        const chunks = [];
-
-        doc.on("data", (chunk) => chunks.push(chunk));
+        const doc = new PDFDocument({
+            margin: 50,
+            size: "A4",
+        })
+        const chunks = []
+        doc.on("data", (chunk) => chunks.push(chunk))
 
         return new Promise((resolve, reject) => {
             doc.on("end", () => {
-                const pdfBuffer = Buffer.concat(chunks);
-                console.log(`✅ PDF gerado com sucesso! Tamanho: ${pdfBuffer.length} bytes`);
-                resolve(pdfBuffer);
-            });
+                const pdfBuffer = Buffer.concat(chunks)
+                console.log(`✅ PDF gerado com sucesso! Tamanho: ${pdfBuffer.length} bytes`)
+                resolve(pdfBuffer)
+            })
 
             doc.on("error", (error) => {
-                console.error("❌ Erro ao gerar PDF:", error);
-                reject(error);
-            });
+                console.error("❌ Erro ao gerar PDF:", error)
+                reject(error)
+            })
 
             try {
-                // ==================== CABEÇALHO PROFISSIONAL ====================
-                let currentY = 30;
+                let yPos = 40
+                const leftX = 40
+                const rightX = 390
 
-                // Informações da empresa (lado esquerdo)
-                doc.fontSize(12).fillColor("#000080");
-                currentY = doc.text(" Ouremáquinas Oliveira, Marques e Alves, Lda.", 45, currentY, { width: 400, align: "left" }).y;
+                // Cabeçalho Empresa (esquerda)
+                doc.fontSize(10).font("Helvetica-Bold").text("Ouremáquinas Oliveira, Marques e Alves, Lda.", leftX, yPos)
+                doc.fontSize(9).font("Helvetica")
+                    .text("Rua Dr. Francisco de Sá Carneiro, nº120", leftX, yPos + 15)
+                    .text("2490-548 Ourém", leftX, yPos + 27)
+                    .text("Tel.: 249 541 336", leftX, yPos + 39)
+                    .text("(chamada para a rede fixa nacional)", leftX, yPos + 51)
+                    .text("www.ouremaquinas.pt", leftX, yPos + 63)
+                    .text("geral@ouremaquinas.pt", leftX, yPos + 75)
 
-                doc.fontSize(8).fillColor("#000000");
-                currentY = doc.text("Rua Dr. Francisco de Sá Carneiro, nº120", 50, currentY).y;
-                currentY = doc.text("2490-548 Ourém", 50, currentY).y;
-                currentY = doc.text("Tel.: 249 541 336", 50, currentY).y;
-                currentY = doc.text("(chamada para a rede fixa nacional)", 50, currentY).y;
-                currentY = doc.text("www.ouremaquinas.pt", 50, currentY).y;
-                currentY = doc.text("e-mail: geral@ouremaquinas.pt", 50, currentY).y;
+                // Cabeçalho Cliente (direita)
+                doc.fontSize(9).font("Helvetica-Bold").text("Exmo(s). Sr(s).:", rightX, yPos)
+                doc.font("Helvetica")
+                    .text((rep.cliente_nome || "").toUpperCase(), rightX, yPos + 15)
 
-                // Dados do cliente (lado direito)
-                let clienteY = 50;
-                if (rep.cliente_nome) {
-                    doc.fontSize(8).fillColor("#000000");
-                    clienteY = doc.text("Exmo(s). Sr(s).:", 350, clienteY).y;
-                    doc.fontSize(10).fillColor("#000080");
-                    clienteY = doc.text(rep.cliente_nome.toUpperCase(), 350, clienteY, { width: 200 }).y;
-                    doc.fontSize(8).fillColor("#000000");
-                    if (rep.cliente_morada) clienteY = doc.text(rep.cliente_morada, 350, clienteY, { width: 200 }).y;
-                    if (rep.cliente_numero) clienteY = doc.text(`Nº Cliente: ${rep.cliente_numero}`, 350, clienteY).y;
-                    if (rep.cliente_telefone) clienteY = doc.text(`Tel: ${rep.cliente_telefone}`, 350, clienteY).y;
-                    if (rep.cliente_nif) clienteY = doc.text(`NIF: ${rep.cliente_nif}`, 350, clienteY).y;
+                let clienteY = yPos + 27
+                if (rep.cliente_morada) {
+                    const moradaParts = rep.cliente_morada.split(",")
+                    moradaParts.forEach(part => {
+                        doc.text(part.trim().toUpperCase(), rightX, clienteY)
+                        clienteY += 12
+                    })
                 }
 
-                // Linha separadora (pega o maior Y entre o lado esquerdo e direito)
-                currentY = Math.max(currentY, clienteY, 130);
-                doc.moveTo(50, currentY).lineTo(545, currentY).strokeColor("#cccccc").stroke();
-                currentY += 10;
+                let infoExtra = ""
+                if (rep.cliente_numero) infoExtra += `Nº Cliente: 211110${rep.cliente_numero}`
 
-                // ==================== TÍTULO DO DOCUMENTO ====================
-                doc.fontSize(14).fillColor("#000080");
-                currentY = doc.text("ORÇAMENTO DE REPARAÇÃO", 50, currentY, { align: "center", width: 495 }).y + 10;
-
-                // Informações do orçamento
-                doc.fontSize(10).fillColor("#000000");
-                currentY = doc.text(`Reparação Nº: ${rep.numreparacao || rep.id}`, 50, currentY).y;
-                currentY = doc.text(`Data: ${new Date(rep.dataentrega).toLocaleDateString("pt-PT")}`, 465, currentY).y;
-                currentY = doc.text(`Estado: ${rep.estadoorcamento || "Em análise"}`, 50, currentY).y + 10;
-
-                // ==================== DADOS DO EQUIPAMENTO ====================
-                doc.fontSize(12).fillColor("#000080");
-                currentY = doc.text("EQUIPAMENTO", 50, currentY, { underline: true }).y + 5;
-
-                doc.fontSize(10).fillColor("#000000");
-                currentY = doc.text(`Máquina: ${rep.nomemaquina || "N/A"}`, 50, currentY).y;
-                currentY = doc.text(`Estado da Reparação: ${rep.estadoreparacao || "N/A"}`, 370, currentY).y + 10;
-
-                // ==================== DESCRIÇÃO DA REPARAÇÃO ====================
-                if (rep.descricao && rep.descricao.trim()) {
-                    doc.fontSize(12).fillColor("#000080");
-                    currentY = doc.text("DESCRIÇÃO DA REPARAÇÃO", 50, currentY, { underline: true }).y + 5;
-                    doc.fontSize(10).fillColor("#000000");
-                    currentY = doc.text(rep.descricao.trim(), 50, currentY, {
-                        width: 495,
-                        align: "justify",
-                        lineGap: 2,
-                    }).y + 10;
+                if (rep.cliente_nif) {
+                    doc.text(infoExtra, rightX, clienteY);
+                    clienteY += 12; // Adiciona espaçamento antes do NIF
+                    doc.text(`NIF: ${rep.cliente_nif}`, rightX, clienteY);
+                    clienteY += 12;
+                } else if (infoExtra) {
+                    doc.text(infoExtra, rightX, clienteY);
+                    clienteY += 12;
                 }
 
-                // ==================== TABELA DE PEÇAS E SERVIÇOS ====================
-                if (pecas.length > 0 || Number(rep.mao_obra) > 0) {
-                    doc.fontSize(12).fillColor("#000080");
-                    currentY = doc.text("PEÇAS E SERVIÇOS", 50, currentY, { underline: true }).y + 5;
+                yPos = Math.max(yPos + 90, clienteY + 30)
 
-                    // Cabeçalho da tabela com fundo cinza
-                    doc.rect(50, currentY, 495, 17).fillColor("#f0f0f0").fill();
-                    doc.fontSize(8).fillColor("#000000");
-                    doc.text("DESCRIÇÃO", 60, currentY + 6, { width: 200 });
-                    doc.text("DESC. INTERNA", 280, currentY + 6, { width: 100 });
-                    doc.text("QTD", 400, currentY + 6, { width: 30, align: "center" });
-                    doc.text("PREÇO", 420, currentY + 6, { width: 60, align: "right" });
-                    doc.text("TOTAL", 460, currentY + 6, { width: 80, align: "right" });
+                // ==================== TÍTULO ====================
+                doc.font("Helvetica-Bold").fontSize(11).text("ORÇAMENTO DE REPARAÇÃO", 0, yPos, {
+                    align: "center",
+                    width: doc.page.width
+                })
 
-                    currentY += 25;
-                    let totalPecas = 0;
+                yPos += 18
 
-                    // Itens da tabela
-                    pecas.forEach((peca, index) => {
-                        const precoTotal = Number(peca.preco_total) || 0;
+                // ==================== INFO REPARAÇÃO ====================
+                const leftCol = 40
+                const rightCol = 450
 
-                        // Fundo alternado para as linhas
-                        if (index % 2 === 0) {
-                            doc.rect(50, currentY - 2, 495, 18).fillColor("#f9f9f9").fill();
-                        }
+                doc.font("Helvetica").fontSize(10)
+                    .text(`Reparação Nº: ${rep.numreparacao || rep.id}`, leftCol, yPos)
+                    .text(`Data: ${new Date(rep.dataentrega).toLocaleDateString("pt-PT")}`, rightCol, yPos)
 
-                        doc.fontSize(9).fillColor("#000000");
-                        doc.text(peca.tipopeca, 60, currentY + 2, { width: 200 });
-                        doc.text(peca.marca, 280, currentY + 2, { width: 125 });
-                        doc.text(peca.quantidade.toString(), 400, currentY + 2, { width: 30, align: "center" });
-                        doc.text(`€${Number(peca.preco_unitario).toFixed(2)}`, 420, currentY + 2, { width: 60, align: "right" });
-                        doc.text(`€${precoTotal.toFixed(2)}`, 460, currentY + 2, { width: 80, align: "right" });
+                yPos += 12
+                doc.text(`Estado: ${rep.estadoorcamento || "N/A"}`, leftCol, yPos)
 
-                        totalPecas += precoTotal;
-                        currentY += 18;
-                    });
+                yPos += 18
 
-                    // Mão de obra geral
-                    const maoObraGeral = Number(rep.mao_obra) || 0;
-                    if (maoObraGeral > 0) {
-                        if (pecas.length % 2 === 0) {
-                            doc.rect(50, currentY - 2, 495, 18).fillColor("#f9f9f9").fill();
-                        }
+                // ==================== EQUIPAMENTO ====================
+                doc.font("Helvetica-Bold").fontSize(11).text("EQUIPAMENTO", leftCol, yPos)
+                yPos += 12
+                doc.font("Helvetica").fontSize(10).text(`Máquina: ${rep.nomemaquina}`, leftCol, yPos)
+                yPos += 11
+                doc.text(`Estado da Reparação: ${rep.estadoreparacao}`, leftCol, yPos)
 
-                        doc.fontSize(9).fillColor("#000000");
-                        doc.text("Mão de Obra (Diagnóstico + Montagem)", 60, currentY + 2, { width: 200 });
-                        doc.text("Serviço", 280, currentY + 2, { width: 100 });
-                        doc.text("1", 400, currentY + 2, { width: 30, align: "center" });
-                        doc.text(`€${maoObraGeral.toFixed(2)}`, 420, currentY + 2, { width: 60, align: "right" });
-                        doc.text(`€${maoObraGeral.toFixed(2)}`, 460, currentY + 2, { width: 80, align: "right" });
+                yPos += 18
 
-                        currentY += 18;
-                    }
-
-                    // Linha separadora
-                    doc.moveTo(50, currentY + 5).lineTo(545, currentY + 5).strokeColor("#000000").stroke();
-
-                    // Totais
-                    const totalGeral = totalPecas + maoObraGeral;
-                    currentY += 15;
-
-                    doc.fontSize(9);
-                    doc.text(`Subtotal Peças: €${totalPecas.toFixed(2)}`, 350, currentY, { align: "right", width: 195 });
-                    currentY += 15;
-                    doc.text(`Mão de Obra: €${maoObraGeral.toFixed(2)}`, 350, currentY, { align: "right", width: 195 });
-                    currentY += 15;
-
-                    // Total final destacado
-                    doc.rect(350, currentY - 2, 195, 20).fillColor("#000080").fill();
-                    doc.fontSize(10).fillColor("#ffffff");
-                    doc.text(`TOTAL: €${totalGeral.toFixed(2)}`, 350, currentY + 4, { align: "right", width: 185 });
+                // ==================== DESCRIÇÃO ====================
+                if (rep.descricao) {
+                    doc.font("Helvetica-Bold").fontSize(10).text("DESCRIÇÃO DA REPARAÇÃO", leftCol, yPos)
+                    yPos += 12
+                    doc.font("Helvetica").fontSize(8).text(rep.descricao.toUpperCase(), leftCol, yPos, { width: 500 })
+                    yPos += 15
                 }
 
-                // ==================== RODAPÉ ====================
-                const footerY = doc.page.height - 107;
-                doc.fontSize(7).fillColor("#666666");
-                doc.text("CONDIÇÕES:", 50, footerY);
-                doc.text("• Este orçamento é válido por 30 dias a partir da data de emissão.", 50, footerY + 12);
-                doc.text("• Preços sujeitos a IVA à taxa em vigor.", 50, footerY + 24);
-                doc.text("• A reparação só será iniciada após aprovação do orçamento.", 50, footerY + 36);
-                doc.text("• Equipamento não levantado em 30 dias após o aviso , será considerado abandonado.", 50, footerY + 48);
+                // ==================== TABELA PEÇAS ====================
+                doc.font("Helvetica-Bold").fontSize(11).text("PEÇAS E SERVIÇOS", leftCol, yPos)
+                yPos += 13
 
-                console.log("📄 Finalizando geração do PDF...");
-                doc.end();
+                // Cabeçalhos
+                const col1 = 40 // DESCRIÇÃO
+                const col2 = 290 // DESC. INTERNA
+                const col3 = 390 // QTD
+                const col4 = 425 // PREÇO
+                const col5 = 475 // DSC
+                const col6 = 510 // TOTAL
+
+                doc.font("Helvetica-Bold").fontSize(9)
+                    .text("DESCRIÇÃO", col1, yPos)
+                    .text("REF. INTERNA", col2, yPos)
+                    .text("QTD", col3, yPos)
+                    .text("PREÇO", col4, yPos)
+                    .text("DSC", col5, yPos)
+                    .text("TOTAL", col6, yPos)
+
+                yPos += 10
+                doc.moveTo(col1, yPos).lineTo(550, yPos).stroke()
+                yPos += 5
+
+                let totalPecas = 0
+
+                // Itens
+                if (pecas.length > 0) {
+                    pecas.forEach((peca) => {
+                        const quantidade = Number(peca.quantidade)
+                        const precoUnit = Number(peca.preco_unitario)
+                        const descontoPercentual = Number(peca.desconto_percentual) || 0
+                        const precoComDesconto = peca.preco_com_desconto !== null && peca.preco_com_desconto !== undefined
+                            ? Number(peca.preco_com_desconto)
+                            : precoUnit
+                        const precoTotal = quantidade * precoComDesconto
+
+                        doc.font("Helvetica").fontSize(9)
+                            .text(peca.tipopeca, col1, yPos)
+                            .text(peca.marca, col2, yPos)
+                            .text(`${quantidade}`, col3, yPos)
+                            .text(`€${precoUnit.toFixed(2)}`, col4, yPos)
+                            .text(`${descontoPercentual.toFixed(1)}`, col5, yPos)
+                            .text(`€${precoTotal.toFixed(2)}`, col6, yPos)
+
+                        totalPecas += precoTotal
+                        yPos += 10
+                    })
+                }
+
+                yPos += 20
+
+                // ==================== TOTAIS ====================
+                // Calcular totais
+                const maoObra = Number(rep.mao_obra) || 0;
+                const total = totalPecas + maoObra;
+
+                // Posicionar totais no rodapé da página
+                const bottomY = doc.page.height - 200;
+
+                doc.font("Helvetica").fontSize(9)
+                    .text(`Subtotal Peças: ${totalPecas.toFixed(2)}€`, 440, bottomY + 58);
+                doc.text(`Mão de Obra: ${maoObra.toFixed(2)}€`, 440, bottomY + 70);
+                doc.font("Helvetica-Bold").fontSize(12)
+                    .text(`TOTAL: ${total.toFixed(2)}€`, 440, bottomY + 85);
+
+                // ==================== CONDIÇÕES ====================
+                // Calcular espaço necessário para o grupo de condições
+                const condicoes = [
+                    "• Este orçamento é válido por 30 dias a partir da data de emissão.",
+                    "• Preços sujeitos a IVA à taxa em vigor.",
+                    "• A reparação só será iniciada após aprovação do orçamento.",
+                    "• Equipamento não levantado em 30 dias após o aviso , será considerado abandonado.",
+                ];
+
+
+
+                doc.font("Helvetica-Bold").fontSize(8).text("CONDIÇÕES:", leftCol);
+
+                doc.moveDown();
+                doc.font("Helvetica").fontSize(7);
+
+                condicoes.forEach((linha) => {
+                    doc.text(linha, leftCol, doc.y - 2, { width: 500 });
+                    doc.moveDown(0.3);
+                });
+
+
+                console.log("📄 Finalizando geração do PDF...")
+                doc.end()
             } catch (error) {
-                console.error("❌ Erro durante a criação do PDF:", error);
-                reject(error);
+                console.error("❌ Erro durante a criação do PDF:", error)
+                reject(error)
             }
-        });
+        })
     } catch (error) {
-        console.error("❌ Erro durante a criação do PDF:", error);
-        reject(error);
+        console.error("❌ Erro ao gerar PDF:", error)
+        throw error
     }
 }
 
-// ==================== ROTAS DE MÁQUINAS ====================
+// Função utilitária
+function toNull(value) {
+    return value === undefined || value === "" || value === null ? null : value
+}
 
-app.get("/machines", async (req, res) => {
-    const { brand } = req.query
-    let sql = "SELECT * FROM maquinas"
-    const params = []
-
-    if (brand) {
-        sql += " WHERE marca = ?"
-        params.push(brand)
-    }
-
-    try {
-        const [results] = await pool.execute(sql, params)
-        res.json(results)
-    } catch (err) {
-        handleQueryError(err, res, "Erro ao buscar as máquinas")
-    }
-})
-
-app.get("/machines/:id", async (req, res) => {
-    const { id } = req.params
-    const sql = "SELECT * FROM maquinas WHERE id = ?"
-
-    try {
-        const [result] = await pool.execute(sql, [id])
-        res.json(result[0])
-    } catch (err) {
-        handleQueryError(err, res, "Erro ao buscar a máquina")
-    }
-})
-
-app.get("/machines/:id/files", async (req, res) => {
-    const { id } = req.params
-    const sql = "SELECT * FROM ficheiros WHERE maquina_id = ?"
-
-    try {
-        const [results] = await pool.execute(sql, [id])
-        res.json(results)
-    } catch (err) {
-        handleQueryError(err, res, "Erro ao buscar os ficheiros")
-    }
-})
-
-app.post("/machines", upload.single("file"), async (req, res) => {
-    const { date, tipo, marca, modelo } = req.body
-    const file = req.file ? req.file.filename : null
-
-    if (!date || !tipo || !marca || !modelo) {
-        return res.status(400).json({ message: "Todos os campos são obrigatórios" })
-    }
-
-    const sqlInsertMachine = "INSERT INTO maquinas (date, tipo, marca, modelo) VALUES (?, ?, ?, ?)"
-
-    try {
-        const [result] = await pool.execute(sqlInsertMachine, [date, tipo, marca, modelo])
-
-        const maquinaId = result.insertId
-        const machineDir = path.join(__dirname, "..", "uploads", `${marca}`)
-
-        await fs.mkdir(machineDir, { recursive: true })
-
-        const machineInfo = `ID: ${maquinaId}\nDate: ${date}\nTipo: ${tipo}\nMarca: ${marca}\nModelo: ${modelo}`
-        await fs.writeFile(path.join(machineDir, "info.txt"), machineInfo)
-
-        if (file) {
-            const sqlInsertFile = "INSERT INTO ficheiros (nome, caminho, maquina_id) VALUES (?, ?, ?)"
-            await pool.execute(sqlInsertFile, [file, `uploads/${file}`, maquinaId])
-            res.json({ message: "Máquina e ficheiro registrados com sucesso" })
-        } else {
-            res.json({ message: "Máquina registrada com sucesso" })
-        }
-    } catch (err) {
-        handleQueryError(err, res, "Erro ao registrar a máquina")
-    }
-})
-
-app.put("/machines/:id", upload.single("file"), async (req, res) => {
-    const { id } = req.params
-    const { date, tipo, marca, modelo } = req.body
-    const file = req.file ? req.file.filename : null
-
-    const sqlUpdateMachine = "UPDATE maquinas SET date = ?, tipo = ?, marca = ?, modelo = ? WHERE id = ?"
-
-    try {
-        await pool.execute(sqlUpdateMachine, [date, tipo, marca, modelo, id])
-
-        if (file) {
-            const sqlInsertFile = "INSERT INTO ficheiros (nome, caminho, maquina_id) VALUES (?, ?, ?)"
-            await pool.execute(sqlInsertFile, [file, `uploads/${file}`, id])
-            res.json({ message: "Máquina e ficheiro atualizados com sucesso" })
-        } else {
-            res.json({ message: "Máquina atualizada com sucesso" })
-        }
-    } catch (err) {
-        handleQueryError(err, res, "Erro ao atualizar a máquina")
-    }
-})
-
-app.delete("/machines/:id", async (req, res) => {
-    const { id } = req.params
-
-    const sqlDeleteFiles = "DELETE FROM ficheiros WHERE maquina_id = ?"
-    const sqlDeleteParts = "DELETE FROM pecas WHERE maquinas_id = ?"
-    const sqlDeleteMachine = "DELETE FROM maquinas WHERE id = ?"
-
-    try {
-        await pool.execute(sqlDeleteFiles, [id])
-        await pool.execute(sqlDeleteParts, [id])
-        await pool.execute(sqlDeleteMachine, [id])
-
-        const machineDir = path.join(__dirname, "uploads", `machine_${id}`)
-        await fs.rmdir(machineDir, { recursive: true })
-
-        res.json({ message: "Máquina, ficheiros e peças associadas deletadas com sucesso" })
-    } catch (err) {
-        handleQueryError(err, res, "Erro ao deletar a máquina")
-    }
-})
-
-// ... (demais rotas de máquinas, se houver)
-
-// ==================== ROTAS DE PEÇAS ====================
-
-app.post("/pecas", async (req, res) => {
-    const { tipopeca, marca, modelo_maquina } = req.body
-    const sqlGetMachine = "SELECT id FROM maquinas WHERE LOWER(modelo) = LOWER(?)"
-
-    try {
-        const [results] = await pool.execute(sqlGetMachine, [modelo_maquina])
-
-        if (results.length === 0) {
-            return res.status(404).json({ message: "Máquina não encontrada" })
-        }
-
-        const maquina = results[0]
-        const maquinas_id = maquina.id
-
-        const sqlInsertPeca = "INSERT INTO pecas (tipopeca, marca, maquinas_id) VALUES (?, ?, ?)"
-        const [result] = await pool.execute(sqlInsertPeca, [tipopeca, marca, maquinas_id])
-
-        const pecaId = result.insertId
-        const pecaDir = path.join(__dirname, "..", "uploads", `${marca}`, `peca_${pecaId}`)
-
-        await fs.mkdir(pecaDir, { recursive: true })
-
-        const pecaInfo = `ID: ${pecaId}\nTipo: ${tipopeca}\nMarca: ${marca}\nMáquina ID: ${maquinas_id}`
-        await fs.writeFile(path.join(pecaDir, "info.txt"), pecaInfo)
-
-        res.json({ message: "Peça registrada com sucesso" })
-    } catch (err) {
-        handleQueryError(err, res, "Erro ao registrar a peça")
-    }
-})
-
-app.get("/pecas", async (req, res) => {
-    const sql = `
-        SELECT pecas.id, pecas.tipopeca, pecas.marca, maquinas.tipo AS maquina_tipo, maquinas.marca AS maquina_marca
-        FROM pecas
-        JOIN maquinas ON pecas.maquinas_id = maquinas.id
-    `
-
-    try {
-        const [results] = await pool.execute(sql)
-        res.json(results)
-    } catch (err) {
-        handleQueryError(err, res, "Erro ao buscar as peças")
-    }
-})
-
-app.get("/pecas/:id", async (req, res) => {
-    const { id } = req.params
-    const sql =
-        "SELECT pecas.*, maquinas.modelo AS modelo_maquina FROM pecas JOIN maquinas ON pecas.maquinas_id = maquinas.id WHERE pecas.id = ?"
-
-    try {
-        const [result] = await pool.execute(sql, [id])
-        res.json(result[0])
-    } catch (err) {
-        handleQueryError(err, res, "Erro ao buscar a peça")
-    }
-})
-
-app.put("/pecas/:id", async (req, res) => {
-    const { id } = req.params
-    const { tipopeca, marca, modelo_maquina } = req.body
-    const sqlGetMachine = "SELECT id FROM maquinas WHERE LOWER(modelo) = LOWER(?)"
-
-    try {
-        const [results] = await pool.execute(sqlGetMachine, [modelo_maquina])
-
-        if (results.length === 0) {
-            return res.status(404).json({ message: "Máquina não encontrada" })
-        }
-
-        const maquina = results[0]
-        const maquinas_id = maquina.id
-
-        const sqlUpdatePeca = "UPDATE pecas SET tipopeca = ?, marca = ?, maquinas_id = ? WHERE id = ?"
-        await pool.execute(sqlUpdatePeca, [tipopeca, marca, maquinas_id, id])
-
-        res.json({ message: "Peça atualizada com sucesso" })
-    } catch (err) {
-        handleQueryError(err, res, "Erro ao atualizar a peça")
-    }
-})
-
-app.delete("/pecas/:id", async (req, res) => {
-    const { id } = req.params
-    const sql = "DELETE FROM pecas WHERE id = ?"
-
-    try {
-        await pool.execute(sql, [id])
-        res.json({ message: "Peça deletada com sucesso" })
-    } catch (err) {
-        handleQueryError(err, res, "Erro ao deletar a peça")
-    }
-})
-
-app.get("/brands", async (req, res) => {
-    const sql = "SELECT DISTINCT marca FROM maquinas"
-
-    try {
-        const [results] = await pool.execute(sql)
-        const brands = results.map((row) => row.marca)
-        res.json(brands)
-    } catch (err) {
-        handleQueryError(err, res, "Erro ao buscar as marcas")
-    }
-})
-
-app.get("/machines/:id/pecas", async (req, res) => {
-    const { id } = req.params
-    const sql = `
-        SELECT pecas.id, pecas.tipopeca, pecas.marca, maquinas.modelo AS modelo_maquina
-        FROM pecas
-        JOIN maquinas ON pecas.maquinas_id = maquinas.id
-        WHERE maquinas.id = ?
-    `
-
-    try {
-        const [results] = await pool.execute(sql, [id])
-        res.json(results)
-    } catch (err) {
-        handleQueryError(err, res, "Erro ao buscar as peças")
-    }
-})
-
-// ==================== ROTAS DE CLIENTES (USANDO POOL) ====================
-
-// GET - Listar todos os clientes
-app.get("/clientes", async (req, res) => {
-    try {
-        const [results] = await pool.execute(`
-            SELECT id, nome, morada, numero_interno, telefone, email, nif,
-                   created_at, updated_at
-            FROM cliente
-            ORDER BY nome ASC
-        `)
-        res.json(results)
-    } catch (error) {
-        handleQueryError(error, res, "Erro ao buscar clientes")
-    }
-})
-
-// GET - Buscar cliente por ID
-app.get("/clientes/:id", async (req, res) => {
-    const { id } = req.params
-    try {
-        const [results] = await pool.execute(`
-            SELECT id, nome, morada, numero_interno, telefone, email, nif,
-                   created_at, updated_at
-            FROM cliente
-            WHERE id = ?
-        `, [id])
-
-        if (results.length === 0) {
-            return res.status(404).json({ error: "Cliente não encontrado" })
-        }
-
-        res.json(results[0])
-    } catch (error) {
-        handleQueryError(error, res, "Erro ao buscar cliente")
-    }
-})
-
-app.get("/clientes", (req, res) => {
-    const sql = "SELECT id, nome, morada, numero_interno, telefone, email, nif FROM cliente ORDER BY nome ASC"
-    db.query(sql, (err, result) => {
-        if (err) {
-            console.error("Error fetching clientes: " + err.stack)
-            res.status(500).send("Error fetching clientes")
-            return
-        }
-        res.json(result)
+// Função para tratar erros
+function handleQueryError(err, res, message) {
+    console.error("Database Error:", err)
+    res.status(500).json({
+        error: message,
+        details: process.env.NODE_ENV === "development" ? err.message : undefined,
     })
-})
+}
+module.exports = { generateRepairPDF, toNull, handleQueryError }
 
-// POST - Criar novo cliente
-app.post("/clientes", async (req, res) => {
-    let { nome, morada, numero_interno, telefone, email, nif } = req.body
 
-    if (!nome || nome.trim() === "") {
-        return res.status(400).json({ error: "Nome é obrigatório" })
-    }
-
+// ==================== FUNÇÃO PARA VERIFICAR ALARMES IMEDIATOS ====================
+async function verificarAlarmesImediatos(reparacaoId) {
     try {
-        // Verificar se número interno já existe (se fornecido)
-        if (numero_interno) {
-            const [existing] = await pool.execute(
-                "SELECT id FROM cliente WHERE numero_interno = ?",
-                [numero_interno]
-            )
-            if (existing.length > 0) {
-                return res.status(400).json({ error: "Número interno já existe" })
+        const sql = `
+      SELECT 
+        r.id,
+        r.nomemaquina,
+        r.dataentrega,
+        r.data_orcamento_aceito,
+        r.data_orcamento_recusado,
+        r.estadoorcamento,
+        r.estadoreparacao,
+        c.nome as cliente_nome,
+        
+        -- Calcular dias para cada tipo de alarme
+        CASE 
+          WHEN (r.estadoorcamento IS NULL OR r.estadoorcamento = '' OR r.estadoorcamento = 'Pendente')
+          THEN DATEDIFF(CURDATE(), r.dataentrega)
+          WHEN r.estadoorcamento IN ('Aceite') AND r.data_orcamento_aceito IS NOT NULL
+          THEN DATEDIFF(CURDATE(), r.data_orcamento_aceito)
+          WHEN r.estadoorcamento IN ('Recusado') AND r.data_orcamento_recusado IS NOT NULL
+          THEN DATEDIFF(CURDATE(), r.data_orcamento_recusado)
+          ELSE 0
+        END as dias_alerta,
+        
+        -- Determinar tipo de alarme
+        CASE 
+          WHEN (r.estadoorcamento IS NULL OR r.estadoorcamento = '' OR r.estadoorcamento = 'Pendente')
+           AND DATEDIFF(CURDATE(), r.dataentrega) >= 15
+          THEN 'sem_orcamento'
+          WHEN r.estadoorcamento IN ('Aceite')
+           AND r.data_orcamento_aceito IS NOT NULL
+           AND DATEDIFF(CURDATE(), r.data_orcamento_aceito) >= 30
+          THEN 'orcamento_aceito'
+          WHEN r.estadoorcamento IN ('Recusado')
+           AND r.data_orcamento_recusado IS NOT NULL
+           AND DATEDIFF(CURDATE(), r.data_orcamento_recusado) >= 15
+          THEN 'orcamento_recusado'
+          ELSE NULL
+        END as tipo_alarme
+        
+      FROM reparacao r
+      LEFT JOIN cliente c ON r.cliente_id = c.id
+      WHERE r.id = ?
+      AND (r.estadoreparacao != 'Concluída' AND r.estadoreparacao != 'Entregue')
+      HAVING tipo_alarme IS NOT NULL
+    `
+
+        const [rows] = await pool.execute(sql, [reparacaoId])
+
+        if (rows.length > 0) {
+            const alarme = rows[0]
+            // Determinar prioridade
+            let prioridade = "Baixo"
+            switch (alarme.tipo_alarme) {
+                case "sem_orcamento":
+                    if (alarme.dias_alerta >= 30) prioridade = "Crítico"
+                    else if (alarme.dias_alerta >= 20) prioridade = "Alto"
+                    else if (alarme.dias_alerta >= 15) prioridade = "Médio"
+                    break
+                case "orcamento_aceito":
+                    if (alarme.dias_alerta >= 60) prioridade = "Crítico"
+                    else if (alarme.dias_alerta >= 45) prioridade = "Alto"
+                    else if (alarme.dias_alerta >= 30) prioridade = "Médio"
+                    break
+                case "orcamento_recusado":
+                    if (alarme.dias_alerta >= 45) prioridade = "Crítico"
+                    else if (alarme.dias_alerta >= 30) prioridade = "Alto"
+                    else if (alarme.dias_alerta >= 15) prioridade = "Médio"
+                    break
+            }
+
+            console.log(`🚨 ALARME IMEDIATO DETECTADO:`)
+            console.log(`   Reparação ID: ${alarme.id}`)
+            console.log(`   Equipamento: ${alarme.nomemaquina}`)
+            console.log(`   Cliente: ${alarme.cliente_nome}`)
+            console.log(`   Tipo: ${alarme.tipo_alarme}`)
+            console.log(`   Dias: ${alarme.dias_alerta}`)
+            console.log(`   Prioridade: ${prioridade}`)
+
+            return {
+                temAlarme: true,
+                alarme: {
+                    ...alarme,
+                    prioridade,
+                },
             }
         }
 
-        const [result] = await pool.execute(
-            `INSERT INTO cliente (nome, morada, numero_interno, telefone, email, nif)
-             VALUES (?, ?, ?, ?, ?, ?)`,
-            [
-                nome.trim(),
-                morada || null,
-                numero_interno || null,
-                telefone || null,
-                email || null,
-                nif || null,
-            ]
-        )
-
-        res.status(201).json({
-            message: "Cliente criado com sucesso",
-            id: result.insertId,
-        })
+        return { temAlarme: false }
     } catch (error) {
-        handleQueryError(error, res, "Erro ao criar cliente")
+        console.error("Erro ao verificar alarmes imediatos:", error)
+        return { temAlarme: false, erro: error.message }
+    }
+}
+
+// ==================== ROTAS DE ALARMES ====================
+
+// GET - Buscar todos os tipos de alarmes
+app.get("/alarmes/todos", async (req, res) => {
+    try {
+        const sql = `
+      SELECT 
+        r.id,
+        r.numreparacao,
+        r.nomemaquina,
+        r.nomecentro,
+        r.dataentrega,
+        r.data_orcamento_aceito,
+        r.data_orcamento_recusado,
+        r.ultimo_alarme_aceito,
+        r.ultimo_alarme_recusado,
+        r.estadoreparacao,
+        r.estadoorcamento,
+        r.descricao,
+        r.alarme_visto,
+        c.nome as cliente_nome,
+        c.telefone as cliente_telefone,
+        c.email as cliente_email,
+        
+        -- Calcular dias para cada tipo de alarme
+        CASE 
+          WHEN (r.estadoorcamento IS NULL OR r.estadoorcamento = '' OR r.estadoorcamento = 'Em processo')
+          THEN DATEDIFF(CURDATE(), r.dataentrega)
+          WHEN r.estadoorcamento IN ('Aceito') AND r.data_orcamento_aceito IS NOT NULL
+          THEN DATEDIFF(CURDATE(), r.data_orcamento_aceito)
+          WHEN r.estadoorcamento IN ('Recusado') AND r.data_orcamento_recusado IS NOT NULL
+          THEN DATEDIFF(CURDATE(), r.data_orcamento_recusado)
+          ELSE 0
+        END as dias_alerta,
+        
+        -- Determinar tipo de alarme
+        CASE 
+          WHEN (r.estadoorcamento IS NULL OR r.estadoorcamento = '' OR r.estadoorcamento = 'Em processo')
+           AND DATEDIFF(CURDATE(), r.dataentrega) >= 15
+          THEN 'sem_orcamento'
+          WHEN r.estadoorcamento IN ('Aceito')
+           AND r.data_orcamento_aceito IS NOT NULL
+           AND DATEDIFF(CURDATE(), r.data_orcamento_aceito) >= 30
+          THEN 'orcamento_aceito'
+          WHEN r.estadoorcamento IN ('Recusado')
+           AND r.data_orcamento_recusado IS NOT NULL
+           AND DATEDIFF(CURDATE(), r.data_orcamento_recusado) >= 15
+          THEN 'orcamento_recusado'
+          ELSE NULL
+        END as tipo_alarme,
+        
+        -- Data de referência para cada tipo
+        CASE 
+          WHEN (r.estadoorcamento IS NULL OR r.estadoorcamento = '' OR r.estadoorcamento = 'Em processo')
+          THEN r.dataentrega
+          WHEN r.estadoorcamento IN ('Aceito')
+          THEN r.data_orcamento_aceito
+          WHEN r.estadoorcamento IN ('Recusado')
+          THEN r.data_orcamento_recusado
+          ELSE r.dataentrega
+        END as data_referencia
+        
+      FROM reparacao r
+      LEFT JOIN cliente c ON r.cliente_id = c.id
+      WHERE (r.estadoreparacao != 'Concluída' AND r.estadoreparacao != 'Entregue')
+      HAVING tipo_alarme IS NOT NULL
+      ORDER BY dias_alerta DESC
+    `
+
+        const [rows] = await pool.execute(sql)
+
+        // Processar alarmes e adicionar informações de prioridade
+        const alarmes = rows.map((row) => {
+            let prioridade = "Baixo"
+            let visto = false
+
+            // Determinar prioridade baseada no tipo e dias
+            switch (row.tipo_alarme) {
+                case "sem_orcamento":
+                    if (row.dias_alerta >= 30) prioridade = "Crítico"
+                    else if (row.dias_alerta >= 20) prioridade = "Alto"
+                    else if (row.dias_alerta >= 15) prioridade = "Médio"
+                    visto = row.alarme_visto === 1
+                    break
+                case "orcamento_aceito":
+                    if (row.dias_alerta >= 60) prioridade = "Crítico"
+                    else if (row.dias_alerta >= 45) prioridade = "Alto"
+                    else if (row.dias_alerta >= 30) prioridade = "Médio"
+                    // Verificar se deve mostrar alarme (a cada 15 dias após os primeiros 30)
+                    visto =
+                        row.ultimo_alarme_aceito &&
+                        Math.abs(new Date() - new Date(row.ultimo_alarme_aceito)) < 15 * 24 * 60 * 60 * 1000
+                    break
+                case "orcamento_recusado":
+                    if (row.dias_alerta >= 45) prioridade = "Crítico"
+                    else if (row.dias_alerta >= 30) prioridade = "Alto"
+                    else if (row.dias_alerta >= 15) prioridade = "Médio"
+                    // Verificar se deve mostrar alarme (a cada 15 dias)
+                    visto =
+                        row.ultimo_alarme_recusado &&
+                        Math.abs(new Date() - new Date(row.ultimo_alarme_recusado)) < 15 * 24 * 60 * 60 * 1000
+                    break
+            }
+
+            return {
+                ...row,
+                prioridade,
+                visto,
+            }
+        })
+
+        console.log(`📊 Retornando ${alarmes.length} alarmes`)
+        res.json(alarmes)
+    } catch (err) {
+        handleQueryError(err, res, "Erro ao buscar alarmes")
     }
 })
 
-// PUT - Atualizar cliente
+// GET - Estatísticas detalhadas de alarmes
+app.get("/alarmes/estatisticas", async (req, res) => {
+    try {
+        const sql = `
+      SELECT 
+        COUNT(*) as total_alarmes,
+        SUM(CASE WHEN tipo_alarme = 'sem_orcamento' THEN 1 ELSE 0 END) as sem_orcamento,
+        SUM(CASE WHEN tipo_alarme = 'orcamento_aceito' THEN 1 ELSE 0 END) as orcamento_aceito,
+        SUM(CASE WHEN tipo_alarme = 'orcamento_recusado' THEN 1 ELSE 0 END) as orcamento_recusado,
+        SUM(CASE WHEN dias_alerta >= 30 THEN 1 ELSE 0 END) as criticos,
+        SUM(CASE WHEN dias_alerta >= 20 AND dias_alerta < 30 THEN 1 ELSE 0 END) as altos,
+        SUM(CASE WHEN dias_alerta >= 15 AND dias_alerta < 20 THEN 1 ELSE 0 END) as medios,
+        SUM(CASE WHEN alarme_visto = 0 OR alarme_visto IS NULL THEN 1 ELSE 0 END) as nao_vistos
+      FROM (
+        SELECT 
+          CASE 
+            WHEN (r.estadoorcamento IS NULL OR r.estadoorcamento = '' OR r.estadoorcamento = 'Em processo')
+             AND DATEDIFF(CURDATE(), r.dataentrega) >= 15
+            THEN 'sem_orcamento'
+            WHEN r.estadoorcamento IN ('Aceito')
+             AND r.data_orcamento_aceito IS NOT NULL
+             AND DATEDIFF(CURDATE(), r.data_orcamento_aceito) >= 30
+            THEN 'orcamento_aceito'
+            WHEN r.estadoorcamento IN ('Recusado')
+             AND r.data_orcamento_recusado IS NOT NULL
+             AND DATEDIFF(CURDATE(), r.data_orcamento_recusado) >= 15
+            THEN 'orcamento_recusado'
+            ELSE NULL
+          END as tipo_alarme,
+          
+          CASE 
+            WHEN (r.estadoorcamento IS NULL OR r.estadoorcamento = '' OR r.estadoorcamento = 'Em processo')
+            THEN DATEDIFF(CURDATE(), r.dataentrega)
+            WHEN r.estadoorcamento IN ('Aceito') AND r.data_orcamento_aceito IS NOT NULL
+            THEN DATEDIFF(CURDATE(), r.data_orcamento_aceito)
+            WHEN r.estadoorcamento IN ('Recusado') AND r.data_orcamento_recusado IS NOT NULL
+            THEN DATEDIFF(CURDATE(), r.data_orcamento_recusado)
+            ELSE 0
+          END as dias_alerta,
+          
+          r.alarme_visto
+          
+        FROM reparacao r
+        WHERE (r.estadoreparacao != 'Concluída' AND r.estadoreparacao != 'Entregue')
+      ) as alarmes_calculados
+      WHERE tipo_alarme IS NOT NULL
+    `
+
+        const [rows] = await pool.execute(sql)
+        res.json(rows[0])
+    } catch (err) {
+        handleQueryError(err, res, "Erro ao buscar estatísticas de alarmes")
+    }
+})
+
+// GET - Alarmes por tipo
+app.get("/alarmes/por-tipo", async (req, res) => {
+    try {
+        const sql = `
+      SELECT 
+        tipo_alarme,
+        COUNT(*) as quantidade,
+        AVG(dias_alerta) as media_dias
+      FROM (
+        SELECT 
+          CASE 
+            WHEN (r.estadoorcamento IS NULL OR r.estadoorcamento = '' OR r.estadoorcamento = 'Em processo')
+             AND DATEDIFF(CURDATE(), r.dataentrega) >= 15
+            THEN 'sem_orcamento'
+            WHEN r.estadoorcamento IN ('Aceito')
+             AND r.data_orcamento_aceito IS NOT NULL
+             AND DATEDIFF(CURDATE(), r.data_orcamento_aceito) >= 30
+            THEN 'orcamento_aceito'
+            WHEN r.estadoorcamento IN ('Recusado')
+             AND r.data_orcamento_recusado IS NOT NULL
+             AND DATEDIFF(CURDATE(), r.data_orcamento_recusado) >= 15
+            THEN 'orcamento_recusado'
+            ELSE NULL
+          END as tipo_alarme,
+          
+          CASE 
+            WHEN (r.estadoorcamento IS NULL OR r.estadoorcamento = '' OR r.estadoorcamento = 'Em processo')
+            THEN DATEDIFF(CURDATE(), r.dataentrega)
+            WHEN r.estadoorcamento IN ('Aceito') AND r.data_orcamento_aceito IS NOT NULL
+            THEN DATEDIFF(CURDATE(), r.data_orcamento_aceito)
+            WHEN r.estadoorcamento IN ('Recusado') AND r.data_orcamento_recusado IS NOT NULL
+            THEN DATEDIFF(CURDATE(), r.data_orcamento_recusado)
+            ELSE 0
+          END as dias_alerta
+          
+        FROM reparacao r
+        WHERE (r.estadoreparacao != 'Concluída' AND r.estadoreparacao != 'Entregue')
+      ) as alarmes_calculados
+      WHERE tipo_alarme IS NOT NULL
+      GROUP BY tipo_alarme
+      ORDER BY quantidade DESC
+    `
+
+        const [rows] = await pool.execute(sql)
+        res.json(rows)
+    } catch (err) {
+        handleQueryError(err, res, "Erro ao buscar alarmes por tipo")
+    }
+})
+
+// GET - Tendências de alarmes
+app.get("/alarmes/tendencias", async (req, res) => {
+    try {
+        const sql = `
+      SELECT 
+        AVG(CASE WHEN tipo_alarme = 'sem_orcamento' THEN dias_alerta END) as tempo_medio_sem_orcamento,
+        AVG(CASE WHEN tipo_alarme = 'orcamento_aceito' THEN dias_alerta END) as tempo_medio_aceito,
+        AVG(CASE WHEN tipo_alarme = 'orcamento_recusado' THEN dias_alerta END) as tempo_medio_recusado,
+        (
+          SELECT COUNT(*) 
+          FROM reparacao 
+          WHERE estadoreparacao IN ('Concluída', 'Entregue')
+          AND dataconclusao >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)
+        ) as resolvidos_semana,
+        (
+          SELECT COUNT(*) 
+          FROM reparacao 
+          WHERE dataentrega >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)
+        ) as total_semana
+      FROM (
+        SELECT 
+          CASE 
+            WHEN (r.estadoorcamento IS NULL OR r.estadoorcamento = '' OR r.estadoorcamento = 'Em processo')
+             AND DATEDIFF(CURDATE(), r.dataentrega) >= 15
+            THEN 'sem_orcamento'
+            WHEN r.estadoorcamento IN ('Aceito')
+             AND r.data_orcamento_aceito IS NOT NULL
+             AND DATEDIFF(CURDATE(), r.data_orcamento_aceito) >= 30
+            THEN 'orcamento_aceito'
+            WHEN r.estadoorcamento IN ('Recusado')
+             AND r.data_orcamento_recusado IS NOT NULL
+             AND DATEDIFF(CURDATE(), r.data_orcamento_recusado) >= 15
+            THEN 'orcamento_recusado'
+            ELSE NULL
+          END as tipo_alarme,
+          
+          CASE 
+            WHEN (r.estadoorcamento IS NULL OR r.estadoorcamento = '' OR r.estadoorcamento = 'Em processo')
+            THEN DATEDIFF(CURDATE(), r.dataentrega)
+            WHEN r.estadoorcamento IN ('Aceito') AND r.data_orcamento_aceito IS NOT NULL
+            THEN DATEDIFF(CURDATE(), r.data_orcamento_aceito)
+            WHEN r.estadoorcamento IN ('Recusado') AND r.data_orcamento_recusado IS NOT NULL
+            THEN DATEDIFF(CURDATE(), r.data_orcamento_recusado)
+            ELSE 0
+          END as dias_alerta
+          
+        FROM reparacao r
+        WHERE (r.estadoreparacao != 'Concluída' AND r.estadoreparacao != 'Entregue')
+      ) as alarmes_calculados
+      WHERE tipo_alarme IS NOT NULL
+    `
+
+        const [rows] = await pool.execute(sql)
+        const resultado = rows[0]
+
+        // Calcular taxa de resolução
+        const taxaResolucao =
+            resultado.total_semana > 0 ? Math.round((resultado.resolvidos_semana / resultado.total_semana) * 100) : 0
+
+        res.json({
+            tempo_medio_sem_orcamento: Math.round(resultado.tempo_medio_sem_orcamento || 0),
+            tempo_medio_aceito: Math.round(resultado.tempo_medio_aceito || 0),
+            tempo_medio_recusado: Math.round(resultado.tempo_medio_recusado || 0),
+            taxa_resolucao: taxaResolucao,
+            resolvidos_semana: resultado.resolvidos_semana,
+            total_semana: resultado.total_semana,
+        })
+    } catch (err) {
+        handleQueryError(err, res, "Erro ao buscar tendências de alarmes")
+    }
+})
+
+// PUT - Marcar alarme como visto (expandido para diferentes tipos)
+app.put("/alarmes/marcar-visto/:id", async (req, res) => {
+    const { id } = req.params
+    const { tipo_alarme } = req.body
+
+    if (!id || isNaN(id)) return res.status(400).json({ error: "ID inválido" })
+
+    try {
+        // Primeiro, verificar se a reparação existe e determinar o tipo de alarme se não fornecido
+        let tipoAlarmeDetectado = tipo_alarme
+
+        if (!tipoAlarmeDetectado) {
+            const [reparacaoInfo] = await pool.execute(
+                `
+                SELECT 
+                    r.estadoorcamento,
+                    r.dataentrega,
+                    r.data_orcamento_aceito,
+                    r.data_orcamento_recusado,
+                    CASE 
+                        WHEN (r.estadoorcamento IS NULL OR r.estadoorcamento = '' OR r.estadoorcamento = 'Em processo')
+                         AND DATEDIFF(CURDATE(), r.dataentrega) >= 15
+                        THEN 'sem_orcamento'
+                        WHEN r.estadoorcamento IN ('Aceito')
+                         AND r.data_orcamento_aceito IS NOT NULL
+                         AND DATEDIFF(CURDATE(), r.data_orcamento_aceito) >= 30
+                        THEN 'orcamento_aceito'
+                        WHEN r.estadoorcamento IN ('Recusado')
+                         AND r.data_orcamento_recusado IS NOT NULL
+                         AND DATEDIFF(CURDATE(), r.data_orcamento_recusado) >= 15
+                        THEN 'orcamento_recusado'
+                        ELSE NULL
+                    END as tipo_alarme_detectado
+                FROM reparacao r
+                WHERE r.id = ?
+            `,
+                [id],
+            )
+
+            if (reparacaoInfo.length === 0) {
+                return res.status(404).json({ error: "Reparação não encontrada" })
+            }
+
+            tipoAlarmeDetectado = reparacaoInfo[0].tipo_alarme_detectado
+
+            if (!tipoAlarmeDetectado) {
+                return res.status(400).json({ error: "Esta reparação não possui alarmes ativos" })
+            }
+        }
+
+        let sql = ""
+        const hoje = new Date().toISOString().split("T")[0]
+
+        switch (tipoAlarmeDetectado) {
+            case "sem_orcamento":
+                sql = "UPDATE reparacao SET alarme_visto = 1 WHERE id = ?"
+                break
+            case "orcamento_aceito":
+                sql = "UPDATE reparacao SET ultimo_alarme_aceito = ? WHERE id = ?"
+                break
+            case "orcamento_recusado":
+                sql = "UPDATE reparacao SET ultimo_alarme_recusado = ? WHERE id = ?"
+                break
+            default:
+                sql = "UPDATE reparacao SET alarme_visto = 1 WHERE id = ?"
+        }
+
+        const params = tipoAlarmeDetectado === "sem_orcamento" ? [id] : [hoje, id]
+        const [result] = await pool.execute(sql, params)
+
+        if (result.affectedRows === 0) {
+            return res.status(404).json({ error: "Reparação não encontrada" })
+        }
+
+        // Registrar no histórico se a tabela existir
+        try {
+            await pool.execute(
+                "INSERT INTO alarmes_historico (reparacao_id, tipo_alarme, data_alarme, data_visto, visto) VALUES (?, ?, NOW(), NOW(), 1)",
+                [id, tipoAlarmeDetectado],
+            )
+        } catch (histErr) {
+            console.log("Aviso: Não foi possível registrar no histórico:", histErr.message)
+        }
+
+        console.log(`✅ Alarme marcado como visto - ID: ${id}, Tipo: ${tipoAlarmeDetectado}`)
+        res.json({
+            message: "Alarme marcado como visto",
+            tipo_alarme: tipoAlarmeDetectado,
+        })
+    } catch (err) {
+        console.error("❌ Erro ao marcar alarme como visto:", err)
+        handleQueryError(err, res, "Erro ao marcar alarme como visto")
+    }
+})
+
+// GET - Resumo de alarmes para notificação
+app.get("/alarmes/resumo", async (req, res) => {
+    try {
+        const sql = `
+      SELECT 
+        r.id as reparacao_id,
+        tipo_alarme,
+        dias_alerta,
+        CASE 
+          WHEN dias_alerta >= 30 THEN 'critico'
+          WHEN dias_alerta >= 20 THEN 'alto'
+          WHEN dias_alerta >= 15 THEN 'medio'
+          ELSE 'baixo'
+        END as prioridade,
+        CONCAT('Reparação ', r.nomemaquina, ' - ', dias_alerta, ' dias') as mensagem
+      FROM (
+        SELECT 
+          r.id,
+          CASE 
+            WHEN (r.estadoorcamento IS NULL OR r.estadoorcamento = '' OR r.estadoorcamento = 'Em processo')
+             AND DATEDIFF(CURDATE(), r.dataentrega) >= 15
+            THEN 'sem_orcamento'
+            WHEN r.estadoorcamento IN ('Aceito')
+             AND r.data_orcamento_aceito IS NOT NULL
+             AND DATEDIFF(CURDATE(), r.data_orcamento_aceito) >= 30
+            THEN 'orcamento_aceito'
+            WHEN r.estadoorcamento IN ('Recusado')
+             AND r.data_orcamento_recusado IS NOT NULL
+             AND DATEDIFF(CURDATE(), r.data_orcamento_recusado) >= 15
+            THEN 'orcamento_recusado'
+            ELSE NULL
+          END as tipo_alarme,
+          
+          CASE 
+            WHEN (r.estadoorcamento IS NULL OR r.estadoorcamento = '' OR r.estadoorcamento = 'Em processo')
+            THEN DATEDIFF(CURDATE(), r.dataentrega)
+            WHEN r.estadoorcamento IN ('Aceito') AND r.data_orcamento_aceito IS NOT NULL
+            THEN DATEDIFF(CURDATE(), r.data_orcamento_aceito)
+            WHEN r.estadoorcamento IN ('Recusado') AND r.data_orcamento_recusado IS NOT NULL
+            THEN DATEDIFF(CURDATE(), r.data_orcamento_recusado)
+            ELSE 0
+          END as dias_alerta
+          
+        FROM reparacao r
+        WHERE (r.estadoreparacao != 'Concluída' AND r.estadoreparacao != 'Entregue')
+      ) as alarmes_calculados
+      JOIN reparacao r ON alarmes_calculados.id = r.id
+      WHERE tipo_alarme IS NOT NULL
+      ORDER BY dias_alerta DESC
+      LIMIT 20
+    `
+
+        const [rows] = await pool.execute(sql)
+        res.json({
+            alarmes: rows,
+            total: rows.length,
+        })
+    } catch (err) {
+        handleQueryError(err, res, "Erro ao buscar resumo de alarmes")
+    }
+})
+
+// ==================== ROTAS DE DEBUG PARA ALARMES ====================
+
+// GET - Debug de alarme específico por ID
+app.get("/alarmes/debug/:id", async (req, res) => {
+    const { id } = req.params
+
+    if (!id || isNaN(id)) return res.status(400).json({ error: "ID inválido" })
+
+    try {
+        const sql = `
+            SELECT 
+                r.id,
+                r.numreparacao,
+                r.nomemaquina,
+                r.dataentrega,
+                r.data_orcamento_aceito,
+                r.data_orcamento_recusado,
+                r.estadoorcamento,
+                r.estadoreparacao,
+                r.alarme_visto,
+                r.ultimo_alarme_aceito,
+                r.ultimo_alarme_recusado,
+                c.nome as cliente_nome,
+                
+                -- Cálculos de dias
+                DATEDIFF(CURDATE(), r.dataentrega) as dias_desde_entrada,
+                CASE 
+                    WHEN r.data_orcamento_aceito IS NOT NULL 
+                    THEN DATEDIFF(CURDATE(), r.data_orcamento_aceito)
+                    ELSE NULL
+                END as dias_desde_aceito,
+                CASE 
+                    WHEN r.data_orcamento_recusado IS NOT NULL 
+                    THEN DATEDIFF(CURDATE(), r.data_orcamento_recusado)
+                    ELSE NULL
+                END as dias_desde_recusado,
+                
+                -- Verificações de condições
+                CASE 
+                    WHEN r.estadoorcamento IS NULL THEN 'NULL'
+                    WHEN r.estadoorcamento = '' THEN 'VAZIO'
+                    WHEN r.estadoorcamento = 'Em processo' THEN 'EM PROCESSO'
+                    ELSE CONCAT('OUTRO: "', r.estadoorcamento, '"')
+                END as status_orcamento_debug,
+                
+                CASE 
+                    WHEN r.estadoreparacao = 'Concluída' THEN 'CONCLUIDA'
+                    WHEN r.estadoreparacao = 'Entregue' THEN 'ENTREGUE'
+                    ELSE CONCAT('ATIVO: "', r.estadoreparacao, '"')
+                END as status_reparacao_debug,
+                
+                -- Verificar se deveria aparecer em alarmes
+                CASE 
+                    WHEN (r.estadoreparacao = 'Concluída' OR r.estadoreparacao = 'Entregue') 
+                    THEN 'NÃO - Reparação finalizada'
+                    WHEN (r.estadoorcamento IS NULL OR r.estadoorcamento = '' OR r.estadoorcamento = 'Em processo')
+                         AND DATEDIFF(CURDATE(), r.dataentrega) >= 15
+                    THEN 'SIM - Sem orçamento há mais de 15 dias'
+                    WHEN r.estadoorcamento IN ('Aceito')
+                         AND r.data_orcamento_aceito IS NOT NULL
+                         AND DATEDIFF(CURDATE(), r.data_orcamento_aceito) >= 30
+                    THEN 'SIM - Orçamento aceito há mais de 30 dias'
+                    WHEN r.estadoorcamento IN ('Recusado')
+                         AND r.data_orcamento_recusado IS NOT NULL
+                         AND DATEDIFF(CURDATE(), r.data_orcamento_recusado) >= 15
+                    THEN 'SIM - Orçamento recusado há mais de 15 dias'
+                    ELSE 'NÃO - Não atende critérios'
+                END as deveria_aparecer_alarme,
+                
+                -- Tipo de alarme que seria gerado
+                CASE 
+                    WHEN (r.estadoorcamento IS NULL OR r.estadoorcamento = '' OR r.estadoorcamento = 'Em processo')
+                         AND DATEDIFF(CURDATE(), r.dataentrega) >= 15
+                    THEN 'sem_orcamento'
+                    WHEN r.estadoorcamento IN ('Aceito')
+                         AND r.data_orcamento_aceito IS NOT NULL
+                         AND DATEDIFF(CURDATE(), r.data_orcamento_aceito) >= 30
+                    THEN 'orcamento_aceito'
+                    WHEN r.estadoorcamento IN ('Recusado')
+                         AND r.data_orcamento_recusado IS NOT NULL
+                         AND DATEDIFF(CURDATE(), r.data_orcamento_recusado) >= 15
+                    THEN 'orcamento_recusado'
+                    ELSE NULL
+                END as tipo_alarme_seria
+                
+            FROM reparacao r
+            LEFT JOIN cliente c ON r.cliente_id = c.id
+            WHERE r.id = ?
+            `
+
+        const [rows] = await pool.execute(sql, [id])
+
+        if (rows.length === 0) {
+            return res.status(404).json({ error: "Reparação não encontrada" })
+        }
+
+        res.json({
+            debug_info: rows[0],
+            explicacao: {
+                criterios_alarme: {
+                    sem_orcamento: "Orçamento NULL/vazio/Em processo E >= 15 dias desde entrada",
+                    orcamento_aceito: "Orçamento Aceito E >= 30 dias desde aceitação",
+                    orcamento_recusado: "Orçamento Recusado E >= 15 dias desde recusa",
+                },
+                exclusoes: ["Reparações com estado 'Concluída' ou 'Entregue' são excluídas"],
+            },
+        })
+    } catch (err) {
+        handleQueryError(err, res, "Erro ao debugar alarme")
+    }
+})
+
+// GET - Debug geral de todas as reparações que deveriam aparecer nos alarmes
+app.get("/alarmes/debug-geral", async (req, res) => {
+    try {
+        const sql = `
+            SELECT 
+                r.id,
+                r.numreparacao,
+                r.nomemaquina,
+                r.dataentrega,
+                r.estadoorcamento,
+                r.estadoreparacao,
+                c.nome as cliente_nome,
+                DATEDIFF(CURDATE(), r.dataentrega) as dias_desde_entrada,
+                
+                CASE 
+                    WHEN (r.estadoreparacao = 'Concluída' OR r.estadoreparacao = 'Entregue') 
+                    THEN 'EXCLUÍDA - Finalizada'
+                    WHEN (r.estadoorcamento IS NULL OR r.estadoorcamento = '' OR r.estadoorcamento = 'Em processo')
+                         AND DATEDIFF(CURDATE(), r.dataentrega) >= 15
+                    THEN 'ALARME - Sem orçamento'
+                    WHEN r.estadoorcamento IN ('Aceito')
+                         AND r.data_orcamento_aceito IS NOT NULL
+                         AND DATEDIFF(CURDATE(), r.data_orcamento_aceito) >= 30
+                    THEN 'ALARME - Orçamento aceito'
+                    WHEN r.estadoorcamento IN ('Recusado')
+                         AND r.data_orcamento_recusado IS NOT NULL
+                         AND DATEDIFF(CURDATE(), r.data_orcamento_recusado) >= 15
+                    THEN 'ALARME - Orçamento recusado'
+                    ELSE 'SEM ALARME - Não atende critérios'
+                END as status_alarme
+                
+            FROM reparacao r
+            LEFT JOIN cliente c ON r.cliente_id = c.id
+            WHERE DATEDIFF(CURDATE(), r.dataentrega) >= 10  -- Mostrar reparações com mais de 10 dias
+            ORDER BY r.dataentrega ASC
+            `
+
+        const [rows] = await pool.execute(sql)
+
+        const resumo = {
+            total_reparacoes: rows.length,
+            com_alarme: rows.filter((r) => r.status_alarme.includes("ALARME")).length,
+            excluidas: rows.filter((r) => r.status_alarme.includes("EXCLUÍDA")).length,
+            sem_alarme: rows.filter((r) => r.status_alarme.includes("SEM ALARME")).length,
+        }
+
+        res.json({
+            resumo,
+            reparacoes: rows,
+        })
+    } catch (err) {
+        handleQueryError(err, res, "Erro ao debugar alarmes gerais")
+    }
+})
+
+// ==================== ROTAS DE CLIENTES ====================
+
+// Endpoint para listar todos os clientes
+app.get("/clientes", async (req, res) => {
+    try {
+        const [rows] = await pool.execute("SELECT * FROM cliente ORDER BY nome")
+        res.json(rows)
+    } catch (err) {
+        handleQueryError(err, res, "Erro ao buscar clientes")
+    }
+})
+
+// Endpoint para buscar clientes (com busca)
+app.get("/clientes/buscar", async (req, res) => {
+    const { q } = req.query
+    if (!q || q.length < 2) {
+        return res.json([])
+    }
+
+    try {
+        const searchTerm = `%${q}%`
+        const [rows] = await pool.execute(
+            `SELECT * FROM cliente
+        WHERE nome LIKE ? OR numero_interno LIKE ? OR telefone LIKE ? OR email LIKE ?
+       ORDER BY nome LIMIT 10`,
+            [searchTerm, searchTerm, searchTerm, searchTerm],
+        )
+        res.json(rows)
+    } catch (err) {
+        handleQueryError(err, res, "Erro ao buscar clientes")
+    }
+})
+
+// Endpoint para buscar cliente por ID
+app.get("/clientes/:id", async (req, res) => {
+    const { id } = req.params
+    if (!id || isNaN(id)) return res.status(400).json({ error: "ID inválido" })
+
+    try {
+        const [rows] = await pool.execute("SELECT * FROM cliente WHERE id = ?", [id])
+        if (rows.length === 0) return res.status(404).json({ error: "Cliente não encontrado" })
+        res.json(rows[0])
+    } catch (err) {
+        handleQueryError(err, res, "Erro ao buscar cliente")
+    }
+})
+
+// Endpoint para criar cliente
+app.post("/clientes", async (req, res) => {
+    let { nome, morada, numero_interno, telefone, email, nif } = req.body
+
+    if (!nome) return res.status(400).json({ error: "Nome é obrigatório" })
+
+    nome = toNull(nome)
+    morada = toNull(morada)
+    numero_interno = toNull(numero_interno)
+    telefone = toNull(telefone)
+    email = toNull(email)
+    nif = toNull(nif)
+
+    try {
+        const [result] = await pool.execute(
+            "INSERT INTO cliente (nome, morada, numero_interno, telefone, email, nif) VALUES (?, ?, ?, ?, ?, ?)",
+            [nome, morada, numero_interno, telefone, email, nif],
+        )
+        res.status(201).json({ message: "Cliente criado com sucesso", id: result.insertId })
+    } catch (err) {
+        if (err.code === "ER_DUP_ENTRY") return res.status(400).json({ error: "Número interno já existe" })
+        handleQueryError(err, res, "Erro ao criar cliente")
+    }
+})
+
+// Endpoint para atualizar cliente
 app.put("/clientes/:id", async (req, res) => {
     const { id } = req.params
     let { nome, morada, numero_interno, telefone, email, nif } = req.body
 
-    if (!nome || nome.trim() === "") {
-        return res.status(400).json({ error: "Nome é obrigatório" })
-    }
+    if (!id || isNaN(id)) return res.status(400).json({ error: "ID inválido" })
+    if (!nome) return res.status(400).json({ error: "Nome é obrigatório" })
+
+    nome = toNull(nome)
+    morada = toNull(morada)
+    numero_interno = toNull(numero_interno)
+    telefone = toNull(telefone)
+    email = toNull(email)
+    nif = toNull(nif)
 
     try {
-        // Verificar se cliente existe
-        const [existing] = await pool.execute("SELECT id FROM cliente WHERE id = ?", [id])
-        if (existing.length === 0) {
-            return res.status(404).json({ error: "Cliente não encontrado" })
-        }
-
-        // Verificar se número interno já existe em outro cliente
-        if (numero_interno) {
-            const [existingNum] = await pool.execute(
-                "SELECT id FROM cliente WHERE numero_interno = ? AND id != ?",
-                [numero_interno, id]
-            )
-            if (existingNum.length > 0) {
-                return res.status(400).json({ error: "Número interno já existe em outro cliente" })
-            }
-        }
-
-        await pool.execute(
-            `UPDATE cliente
-             SET nome = ?, morada = ?, numero_interno = ?, telefone = ?, email = ?, nif = ?, updated_at = CURRENT_TIMESTAMP
-             WHERE id = ?`,
-            [
-                nome.trim(),
-                morada || null,
-                numero_interno || null,
-                telefone || null,
-                email || null,
-                nif || null,
-                id,
-            ]
+        const [result] = await pool.execute(
+            "UPDATE cliente SET nome = ?, morada = ?, numero_interno = ?, telefone = ?, email = ?, nif = ? WHERE id = ?",
+            [nome, morada, numero_interno, telefone, email, nif, id],
         )
-
+        if (result.affectedRows === 0) return res.status(404).json({ error: "Cliente não encontrado" })
         res.json({ message: "Cliente atualizado com sucesso" })
-    } catch (error) {
-        handleQueryError(error, res, "Erro ao atualizar cliente")
+    } catch (err) {
+        if (err.code === "ER_DUP_ENTRY") return res.status(400).json({ error: "Número interno já existe" })
+        handleQueryError(err, res, "Erro ao atualizar cliente")
     }
 })
 
-// DELETE - Deletar cliente
+// Endpoint para deletar cliente
 app.delete("/clientes/:id", async (req, res) => {
     const { id } = req.params
+    if (!id || isNaN(id)) return res.status(400).json({ error: "ID inválido" })
+
     try {
-        // Verificar se cliente existe
-        const [existing] = await pool.execute("SELECT id FROM cliente WHERE id = ?", [id])
-        if (existing.length === 0) {
-            return res.status(404).json({ error: "Cliente não encontrado" })
-        }
-
-        // Verificar se cliente tem reparações associadas
-        const [reparacoes] = await pool.execute("SELECT id FROM reparacao WHERE cliente_id = ?", [id])
-        if (reparacoes.length > 0) {
-            return res.status(400).json({
-                error: "Não é possível deletar cliente com reparações associadas",
-            })
-        }
-
-        await pool.execute("DELETE FROM cliente WHERE id = ?", [id])
+        const [result] = await pool.execute("DELETE FROM cliente WHERE id = ?", [id])
+        if (result.affectedRows === 0) return res.status(404).json({ error: "Cliente não encontrado" })
         res.json({ message: "Cliente deletado com sucesso" })
-    } catch (error) {
-        handleQueryError(error, res, "Erro ao deletar cliente")
+    } catch (err) {
+        handleQueryError(err, res, "Erro ao deletar cliente")
     }
 })
 
-// ==================== ROTAS DE REPARAÇÕES (USANDO POOL) ====================
+// ==================== ROTAS DE REPARAÇÕES ====================
 
+// Endpoint para buscar reparações
 app.get("/reparacoes", async (req, res) => {
     const sql = `
     SELECT r.*, c.nome as cliente_nome, c.numero_interno as cliente_numero
@@ -695,16 +1138,13 @@ app.get("/reparacoes", async (req, res) => {
     }
 })
 
-// GET - Buscar reparação por ID com dados completos
+// Endpoint para buscar reparação por ID
 app.get("/reparacoes/:id", async (req, res) => {
     const { id } = req.params
-
-    if (!id || isNaN(id)) {
-        return res.status(400).json({ error: "ID inválido" })
-    }
+    if (!id || isNaN(id)) return res.status(400).json({ error: "ID inválido" })
 
     const sql = `
-    SELECT r.*, c.nome as cliente_nome, c.morada as cliente_morada, 
+    SELECT r.*, c.nome as cliente_nome, c.morada as cliente_morada,
            c.numero_interno as cliente_numero, c.telefone as cliente_telefone,
            c.email as cliente_email, c.nif as cliente_nif
     FROM reparacao r
@@ -714,18 +1154,14 @@ app.get("/reparacoes/:id", async (req, res) => {
 
     try {
         const [rows] = await pool.execute(sql, [id])
-
-        if (rows.length === 0) {
-            return res.status(404).json({ error: "Reparação não encontrada" })
-        }
-
+        if (rows.length === 0) return res.status(404).json({ error: "Reparação não encontrada" })
         res.json(rows[0])
     } catch (err) {
         handleQueryError(err, res, "Erro ao buscar a reparação")
     }
 })
 
-// POST - Criar nova reparação com cliente
+// Endpoint para criar reparação
 app.post("/reparacoes", async (req, res) => {
     let {
         dataentrega,
@@ -749,7 +1185,7 @@ app.post("/reparacoes", async (req, res) => {
             return res.status(400).json({ error: "Data de entrada é obrigatória" })
         }
 
-        // Aplicar toNull
+        // Aplicar toNull e conversões
         dataentrega = toNull(dataentrega)
         datasaida = toNull(datasaida)
         dataconclusao = toNull(dataconclusao)
@@ -759,17 +1195,29 @@ app.post("/reparacoes", async (req, res) => {
         nomemaquina = toNull(nomemaquina)
         numreparacao = toNull(numreparacao)
         cliente_id = toNull(cliente_id)
+        descricao = toNull(descricao)
         mao_obra = Number(mao_obra) || 0
         totalPecas = Number(totalPecas) || 0
         totalGeral = Number(totalGeral) || 0
-        descricao = toNull(descricao)
-        const sql = `
 
+        // Determinar datas de orçamento baseado no estado
+        let data_orcamento_aceito = null
+        let data_orcamento_recusado = null
+
+        if (estadoorcamento && estadoorcamento.toLowerCase().includes("aceite")) {
+            data_orcamento_aceito = datasaida || dataentrega
+        } else if (estadoorcamento && estadoorcamento.toLowerCase().includes("recusado")) {
+            data_orcamento_recusado = dataconclusao || dataentrega
+        }
+
+        const sql = `
       INSERT INTO reparacao (
         dataentrega, datasaida, dataconclusao,
         estadoorcamento, estadoreparacao, nomecentro, nomemaquina,
-        numreparacao, cliente_id, mao_obra,totalPecas, totalGeral, descricao
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        numreparacao, cliente_id, mao_obra, totalPecas, totalGeral, descricao,
+        data_orcamento_aceito, data_orcamento_recusado,
+        alarme_visto, ultimo_alarme_aceito, ultimo_alarme_recusado
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, NULL, NULL)
     `
 
         const [result] = await pool.execute(sql, [
@@ -785,47 +1233,74 @@ app.post("/reparacoes", async (req, res) => {
             mao_obra,
             totalPecas,
             totalGeral,
-            toNull(descricao),
+            descricao,
+            data_orcamento_aceito,
+            data_orcamento_recusado,
         ])
 
         const reparacaoId = result.insertId
+        console.log("✅ Reparação criada com ID:", reparacaoId)
 
-        // Se houver peças, insira-as
+        // Se houver peças, insira-as (SEM preco_total que é coluna gerada)
         if (Array.isArray(pecasNecessarias) && pecasNecessarias.length > 0) {
+            console.log(`🔧 Inserindo ${pecasNecessarias.length} peças...`)
             for (const peca of pecasNecessarias) {
+                const quantidade = Number(peca.quantidade) || 1
+                const precoUnitario = Number(peca.preco_unitario) || 0
+
                 await pool.execute(
                     `INSERT INTO pecas_reparacao (
-    reparacao_id, tipopeca, marca, quantidade, 
-    preco_unitario, existe_no_sistema, observacao
-  ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+            reparacao_id, tipopeca, marca, quantidade, 
+            preco_unitario, existe_no_sistema, observacao, desconto_unitario, desconto_percentual, 
+            tipo_desconto
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                     [
                         reparacaoId,
                         peca.tipopeca,
                         peca.marca,
-                        peca.quantidade || 1,
-                        peca.preco_unitario || 0,
+                        quantidade,
+                        precoUnitario,
                         peca.existeNoSistema ? 1 : 0,
                         peca.observacao || null,
-                    ]
+                        peca.desconto_unitario || 0,
+                        peca.desconto_percentual || 0,
+                        peca.tipo_desconto || null,
+                    ],
                 )
             }
         }
 
+        // 🚨 VERIFICAR ALARMES IMEDIATOS APÓS INSERÇÃO
+        console.log("🔍 Verificando alarmes imediatos para reparação:", reparacaoId)
+        const verificacaoAlarme = await verificarAlarmesImediatos(reparacaoId)
+
+        let responseMessage = "Reparação registrada com sucesso"
+        let alarmeInfo = null
+
+        if (verificacaoAlarme.temAlarme) {
+            responseMessage += " - ⚠️ ALARME DETECTADO!"
+            alarmeInfo = verificacaoAlarme.alarme
+            console.log("🚨 RESPOSTA COM ALARME:", {
+                reparacaoId,
+                alarme: alarmeInfo,
+            })
+        }
+
         res.status(201).json({
-            message: "Reparação registrada com sucesso",
+            message: responseMessage,
             id: reparacaoId,
+            alarme: alarmeInfo,
         })
     } catch (err) {
+        console.error("❌ Erro ao registrar reparação:", err)
         handleQueryError(err, res, "Erro ao registrar a reparação")
     }
 })
 
-// PUT - Atualizar reparação com cliente
+// Endpoint para atualizar reparação
 app.put("/reparacoes/:id", async (req, res) => {
     const { id } = req.params
     if (!id || isNaN(id)) return res.status(400).json({ error: "ID inválido" })
-
-    console.log(`📝 PUT /reparacoes/${id} - Dados recebidos:`, JSON.stringify(req.body, null, 2))
 
     let {
         dataentrega,
@@ -838,13 +1313,10 @@ app.put("/reparacoes/:id", async (req, res) => {
         numreparacao,
         cliente_id,
         mao_obra,
-        totalPecas,
-        totalGeral,
-        pecasNecessarias,
         descricao,
     } = req.body
 
-    // Aplicar toNull e conversões
+    // Aplicar toNull
     dataentrega = toNull(dataentrega)
     datasaida = toNull(datasaida)
     dataconclusao = toNull(dataconclusao)
@@ -855,37 +1327,47 @@ app.put("/reparacoes/:id", async (req, res) => {
     numreparacao = toNull(numreparacao)
     cliente_id = toNull(cliente_id)
     mao_obra = Number(mao_obra) || 0
-    totalPecas = Number(totalPecas) || 0
-    totalGeral = Number(totalGeral) || 0
     descricao = toNull(descricao)
-    pecasNecessarias = Array.isArray(pecasNecessarias) ? pecasNecessarias : []
 
-    console.log("💰 Valores financeiros para atualização:", { mao_obra, totalPecas, totalGeral })
+    // Determinar datas de orçamento baseado no estado
+    let updateOrcamentoFields = ""
+    const extraParams = []
 
-    // Lógica para orçamento recusado
-    if (
-        estadoorcamento &&
-        (estadoorcamento.toLowerCase().includes("recusado") ||
-            estadoorcamento.toLowerCase().includes("rejeitado") ||
-            estadoorcamento.toLowerCase().includes("negado"))
-    ) {
-        if (!dataconclusao) {
-            const hoje = new Date().toISOString().split("T")[0]
-            dataconclusao = hoje
+    if (estadoorcamento) {
+        if (estadoorcamento.toLowerCase().includes("aceite")) {
+            updateOrcamentoFields = ", data_orcamento_aceito = COALESCE(data_orcamento_aceito, ?)"
+            extraParams.push(datasaida || dataentrega)
+        } else if (estadoorcamento.toLowerCase().includes("recusado")) {
+            updateOrcamentoFields = ", data_orcamento_recusado = COALESCE(data_orcamento_recusado, ?)"
+            extraParams.push(dataconclusao || dataentrega)
+            // Lógica para orçamento recusado
+            if (!dataconclusao) {
+                const hoje = new Date().toISOString().split("T")[0]
+                dataconclusao = hoje
+            }
+            estadoreparacao = "Sem reparação"
         }
-        estadoreparacao = "Sem reparação"
+    }
+
+    // Resetar alarme_visto se o orçamento foi definido
+    let resetarAlarme = ""
+    if (estadoorcamento && estadoorcamento !== "" && estadoorcamento !== "Pendente") {
+        resetarAlarme = ", alarme_visto = 0"
     }
 
     const sql = `
     UPDATE reparacao SET
       dataentrega = ?, datasaida = ?, dataconclusao = ?,
-      estadoorcamento = ?, estadoreparacao = ?, nomecentro = ?, nomemaquina = ?,
+      estadoorcamento = ?, estadoreparacao = ?,
+      nomecentro = ?, nomemaquina = ?,
       numreparacao = ?, cliente_id = ?, mao_obra = ?, descricao = ?
+      ${updateOrcamentoFields}
+      ${resetarAlarme}
     WHERE id = ?
   `
 
     try {
-        const [result] = await pool.execute(sql, [
+        const params = [
             dataentrega,
             datasaida,
             dataconclusao,
@@ -897,375 +1379,145 @@ app.put("/reparacoes/:id", async (req, res) => {
             cliente_id,
             mao_obra,
             descricao,
+            ...extraParams,
             id,
-        ])
+        ]
 
-        if (result.affectedRows === 0) {
-            return res.status(404).json({ error: "Reparação não encontrada" })
+        const [result] = await pool.execute(sql, params)
+        if (result.affectedRows === 0) return res.status(404).json({ error: "Reparação não encontrada" })
+
+        // 🚨 VERIFICAR ALARMES IMEDIATOS APÓS ATUALIZAÇÃO
+        console.log("🔍 Verificando alarmes imediatos após atualização para reparação:", id)
+        const verificacaoAlarme = await verificarAlarmesImediatos(id)
+
+        let responseMessage = "Reparação atualizada com sucesso"
+        let alarmeInfo = null
+
+        if (verificacaoAlarme.temAlarme) {
+            responseMessage += " - ⚠️ ALARME DETECTADO!"
+            alarmeInfo = verificacaoAlarme.alarme
+            console.log("🚨 ATUALIZAÇÃO COM ALARME:", {
+                reparacaoId: id,
+                alarme: alarmeInfo,
+            })
         }
 
-        console.log("✅ Reparação atualizada com sucesso!")
-        res.json({ message: "Reparação atualizada com sucesso" })
+        res.json({
+            message: responseMessage,
+            alarme: alarmeInfo,
+        })
     } catch (err) {
-        console.error("❌ Erro ao atualizar reparação:", err)
         handleQueryError(err, res, "Erro ao atualizar a reparação")
     }
 })
 
-// DELETE - Deletar reparação
+// Endpoint para deletar reparação
 app.delete("/reparacoes/:id", async (req, res) => {
     const { id } = req.params
-
-    if (!id || isNaN(id)) {
-        return res.status(400).json({ error: "ID inválido" })
-    }
-
-    const sqlDeleteReparacao = `DELETE FROM reparacao WHERE id = ?`
+    if (!id || isNaN(id)) return res.status(400).json({ error: "ID inválido" })
 
     try {
-        const [result] = await pool.execute(sqlDeleteReparacao, [id])
-
-        if (result.affectedRows === 0) {
-            return res.status(404).json({ error: "Reparação não encontrada" })
-        }
-
+        const [result] = await pool.execute("DELETE FROM reparacao WHERE id = ?", [id])
+        if (result.affectedRows === 0) return res.status(404).json({ error: "Reparação não encontrada" })
         res.json({ message: "Reparação deletada com sucesso" })
     } catch (err) {
         handleQueryError(err, res, "Erro ao deletar a reparação")
     }
 })
 
-// Na rota para buscar peças da reparação, certifique-se de incluir os campos de preço
+// ==================== ROTAS DE PEÇAS DAS REPARAÇÕES ====================
+
+// GET - Buscar peças de uma reparação (CORRIGIDO - retorna array direto)
 app.get("/reparacoes/:id/pecas", async (req, res) => {
-    const { id } = req.params
+    const { id } = req.params;
 
     if (!id || isNaN(id)) {
-        return res.status(400).json({ error: "ID inválido" })
+        return res.status(400).json({ error: "ID inválido" });
     }
 
     try {
-        console.log(`Buscando peças para reparação ID: ${id}`)
+        const [rows] = await pool.execute(`
+            SELECT 
+                id, tipopeca, marca, quantidade, observacao,
+                COALESCE(preco_unitario, 0) as preco_unitario,
+                COALESCE(desconto_unitario, 0) as desconto_unitario,
+                COALESCE(desconto_percentual, 0) as desconto_percentual,
+                tipo_desconto,
+                preco_com_desconto,
+                (preco_com_desconto * COALESCE(quantidade, 1)) as preco_total,
+                COALESCE(existe_no_sistema, 0) as existe_no_sistema
+            FROM pecas_reparacao
+            WHERE reparacao_id = ?
+            ORDER BY tipopeca ASC
+        `, [id]);
 
-        // Verificar se a reparação existe
-        const [reparacaoCheck] = await pool.execute("SELECT id FROM reparacao WHERE id = ?", [id])
-        if (reparacaoCheck.length === 0) {
-            return res.status(404).json({ error: "Reparação não encontrada" })
-        }
-
-        // Buscar peças - INCLUINDO mao_obra
-        const [rows] = await pool.execute(
-            `
-        SELECT id, tipopeca, marca, quantidade, observacao,
-           COALESCE(preco_unitario, 0) as preco_unitario,
-           (COALESCE(preco_unitario, 0) * COALESCE(quantidade, 1)) as preco_total,
-           COALESCE(existe_no_sistema, 0) as existe_no_sistema
-        FROM pecas_reparacao
-        WHERE reparacao_id = ?
-        ORDER BY tipopeca ASC
-        `,
-            [id],
-        )
-
-        console.log(`Encontradas ${rows.length} peças para reparação ${id}`)
-        res.json(rows)
+        res.json(rows);
     } catch (err) {
-        console.error("Erro ao buscar peças da reparação:", err)
-        handleQueryError(err, res, "Erro ao buscar peças da reparação")
+        handleQueryError(err, res, "Erro ao buscar peças da reparação");
     }
-})
+});
 
-// Na rota para atualizar peças, certifique-se de incluir os campos de preço
+// Rota para atualizar peças com suporte a descontos
 app.put("/reparacoes/:id/pecas", async (req, res) => {
-    const { id } = req.params
-    const { pecasNecessarias } = req.body
-
-    console.log(`Atualizando peças para reparação ID: ${id}`)
-    console.log("Dados recebidos:", JSON.stringify(pecasNecessarias, null, 2))
+    const { id } = req.params;
+    const { pecasNecessarias } = req.body;
 
     if (!id || isNaN(id)) {
-        return res.status(400).json({ error: "ID inválido" })
+        return res.status(400).json({ error: "ID inválido" });
     }
 
     if (!Array.isArray(pecasNecessarias)) {
-        return res.status(400).json({ error: "pecasNecessarias deve ser um array" })
+        return res.status(400).json({ error: "pecasNecessarias deve ser um array" });
     }
 
-    let connection
+    let connection;
     try {
-        // Verificar se a reparação existe
-        const [reparacaoCheck] = await pool.execute("SELECT id FROM reparacao WHERE id = ?", [id])
-        if (reparacaoCheck.length === 0) {
-            return res.status(404).json({ error: "Reparação não encontrada" })
-        }
+        connection = await pool.getConnection();
+        await connection.beginTransaction();
 
-        connection = await pool.getConnection()
-        await connection.beginTransaction()
-
-        console.log("Removendo peças antigas...")
         // Remover todas as peças existentes
-        await connection.execute("DELETE FROM pecas_reparacao WHERE reparacao_id = ?", [id])
+        await connection.execute("DELETE FROM pecas_reparacao WHERE reparacao_id = ?", [id]);
 
-        console.log(`Inserindo ${pecasNecessarias.length} novas peças...`)
-        // Inserir as novas peças - INCLUINDO mao_obra
-        for (let i = 0; i < pecasNecessarias.length; i++) {
-            const peca = pecasNecessarias[i]
-
-            // Validar dados da peça
-            if (!peca.tipopeca || !peca.marca) {
-                throw new Error(`Peça ${i + 1}: tipopeca e marca são obrigatórios`)
-            }
-
-            const quantidade = Number(peca.quantidade) || 1
-            const precoUnitario = Number(peca.preco_unitario) || 0
-            const maoObra = Number(peca.mao_obra) || 0
-            const existeNoSistema = peca.existe_no_sistema ? 1 : 0
-
-            console.log(`Inserindo peça ${i + 1}:`, {
-                tipopeca: peca.tipopeca,
-                marca: peca.marca,
-                quantidade,
-                observacao: peca.observacao || null,
-                precoUnitario,
-                maoObra,
-                existeNoSistema,
-            })
-
-            await connection.execute(
-                `INSERT INTO pecas_reparacao (
-    reparacao_id, tipopeca, marca, quantidade, 
-    preco_unitario, existe_no_sistema, observacao
-  ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-                [id, peca.tipopeca.trim(), peca.marca.trim(), quantidade, precoUnitario, existeNoSistema, peca.observacao || null]
-            )
+        // Inserir as novas peças com suporte a descontos
+        for (const peca of pecasNecessarias) {
+            await connection.execute(`
+                INSERT INTO pecas_reparacao (
+                    reparacao_id, tipopeca, marca, quantidade, 
+                    preco_unitario, existe_no_sistema, observacao,
+                    desconto_unitario, desconto_percentual, tipo_desconto
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            `, [
+                id,
+                peca.tipopeca.trim(),
+                peca.marca.trim(),
+                peca.quantidade || 1,
+                peca.preco_unitario || 0,
+                peca.existe_no_sistema ? 1 : 0,
+                peca.observacao || null,
+                peca.desconto_unitario || 0,
+                peca.desconto_percentual || 0,
+                peca.tipo_desconto || 'nenhum'
+            ]);
         }
 
-        await connection.commit()
-        console.log("Peças atualizadas com sucesso!")
-        res.json({
-            message: "Peças atualizadas com sucesso",
-            count: pecasNecessarias.length,
-        })
+        await connection.commit();
+        res.json({ message: "Peças atualizadas com sucesso" });
     } catch (err) {
-        console.error("Erro ao atualizar peças da reparação:", err)
-        if (connection) {
-            await connection.rollback()
-        }
-        handleQueryError(err, res, "Erro ao atualizar peças da reparação")
+        if (connection) await connection.rollback();
+        handleQueryError(err, res, "Erro ao atualizar peças da reparação");
     } finally {
-        if (connection) {
-            connection.release()
-        }
+        if (connection) connection.release();
     }
-})
-
-// ==================== ROTAS DE ALARMES ====================
-
-// GET - Buscar todos os tipos de alarmes
-app.get("/alarmes/todos", async (req, res) => {
-    try {
-        const sql = `
-      SELECT 
-        r.id,
-        r.numreparacao,
-        r.nomemaquina,
-        r.dataentrega,
-        r.data_orcamento_aceito,
-        r.data_orcamento_recusado,
-        r.ultimo_alarme_aceito,
-        r.ultimo_alarme_recusado,
-        r.estadoreparacao,
-        r.estadoorcamento,
-        r.descricao,
-        r.alarme_visto,
-        c.nome as cliente_nome,
-        c.telefone as cliente_telefone,
-        c.email as cliente_email,
-        CASE 
-          WHEN (r.estadoorcamento IS NULL OR r.estadoorcamento = '' OR r.estadoorcamento = 'Pendente')
-          THEN DATEDIFF(CURDATE(), r.dataentrega)
-          WHEN r.estadoorcamento IN ('Aceito', 'Aprovado', 'Confirmado') AND r.data_orcamento_aceito IS NOT NULL
-          THEN DATEDIFF(CURDATE(), r.data_orcamento_aceito)
-          WHEN r.estadoorcamento IN ('Recusado', 'Rejeitado', 'Negado') AND r.data_orcamento_recusado IS NOT NULL
-          THEN DATEDIFF(CURDATE(), r.data_orcamento_recusado)
-          ELSE 0
-        END as dias_alerta,
-        CASE 
-          WHEN (r.estadoorcamento IS NULL OR r.estadoorcamento = '' OR r.estadoorcamento = 'Pendente')
-            AND DATEDIFF(CURDATE(), r.dataentrega) >= 15
-          THEN 'sem_orcamento'
-          WHEN r.estadoorcamento IN ('Aceito', 'Aprovado', 'Confirmado') 
-            AND r.data_orcamento_aceito IS NOT NULL
-            AND DATEDIFF(CURDATE(), r.data_orcamento_aceito) >= 30
-          THEN 'orcamento_aceito'
-          WHEN r.estadoorcamento IN ('Recusado', 'Rejeitado', 'Negado')
-            AND r.data_orcamento_recusado IS NOT NULL
-            AND DATEDIFF(CURDATE(), r.data_orcamento_recusado) >= 15
-          THEN 'orcamento_recusado'
-          ELSE NULL
-        END as tipo_alarme
-      FROM reparacao r
-      LEFT JOIN cliente c ON r.cliente_id = c.id
-      WHERE (r.estadoreparacao != 'Concluída' AND r.estadoreparacao != 'Entregue')
-      HAVING tipo_alarme IS NOT NULL
-      ORDER BY dias_alerta DESC
-    `
-
-        const [rows] = await pool.execute(sql)
-
-        // Processar alarmes e adicionar informações de prioridade
-        const alarmes = rows.map((row) => {
-            let prioridade = "Baixo"
-            let visto = false
-
-            switch (row.tipo_alarme) {
-                case "sem_orcamento":
-                    if (row.dias_alerta >= 30) prioridade = "Crítico"
-                    else if (row.dias_alerta >= 20) prioridade = "Alto"
-                    else if (row.dias_alerta >= 15) prioridade = "Médio"
-                    visto = row.alarme_visto === 1
-                    break
-                case "orcamento_aceito":
-                    if (row.dias_alerta >= 60) prioridade = "Crítico"
-                    else if (row.dias_alerta >= 45) prioridade = "Alto"
-                    else if (row.dias_alerta >= 30) prioridade = "Médio"
-                    visto =
-                        row.ultimo_alarme_aceito &&
-                        new Date(row.ultimo_alarme_aceito).toDateString() === new Date().toDateString()
-                    break
-                case "orcamento_recusado":
-                    if (row.dias_alerta >= 45) prioridade = "Crítico"
-                    else if (row.dias_alerta >= 30) prioridade = "Alto"
-                    else if (row.dias_alerta >= 15) prioridade = "Médio"
-                    visto =
-                        row.ultimo_alarme_recusado &&
-                        new Date(row.ultimo_alarme_recusado).toDateString() === new Date().toDateString()
-                    break
-            }
-
-            return {
-                ...row,
-                prioridade,
-                visto,
-            }
-        })
-
-        res.json(alarmes)
-    } catch (err) {
-        handleQueryError(err, res, "Erro ao buscar alarmes")
-    }
-})
-
-// PUT - Marcar alarme como visto (para todos os tipos)
-app.put("/alarmes/marcar-visto/:id", async (req, res) => {
-    const { id } = req.params
-    const { tipo_alarme } = req.body
-
-    if (!id || isNaN(id)) return res.status(400).json({ error: "ID inválido" })
-
-    try {
-        let sql = ""
-        const hoje = new Date().toISOString().split("T")[0]
-
-        switch (tipo_alarme) {
-            case "sem_orcamento":
-                sql = "UPDATE reparacao SET alarme_visto = 1 WHERE id = ?"
-                break
-            case "orcamento_aceito":
-                sql = "UPDATE reparacao SET ultimo_alarme_aceito = ? WHERE id = ?"
-                break
-            case "orcamento_recusado":
-                sql = "UPDATE reparacao SET ultimo_alarme_recusado = ? WHERE id = ?"
-                break
-            default:
-                sql = "UPDATE reparacao SET alarme_visto = 1 WHERE id = ?"
-        }
-
-        const params = tipo_alarme === "sem_orcamento" ? [id] : [hoje, id]
-        const [result] = await pool.execute(sql, params)
-
-        if (result.affectedRows === 0) {
-            return res.status(404).json({ error: "Reparação não encontrada" })
-        }
-
-        // Registrar no histórico
-        await pool.execute(
-            "INSERT INTO alarmes_historico (reparacao_id, tipo_alarme, data_alarme, data_visto, visto) VALUES (?, ?, NOW(), NOW(), 1)",
-            [id, tipo_alarme],
-        )
-
-        res.json({ message: "Alarme marcado como visto" })
-    } catch (err) {
-        handleQueryError(err, res, "Erro ao marcar alarme como visto")
-    }
-})
-
-// GET - Estatísticas detalhadas de alarmes
-app.get("/alarmes/estatisticas", async (req, res) => {
-    try {
-        const sql = `
-      SELECT 
-        COUNT(*) as total_alarmes,
-        SUM(CASE WHEN tipo_alarme = 'sem_orcamento' THEN 1 ELSE 0 END) as sem_orcamento,
-        SUM(CASE WHEN tipo_alarme = 'orcamento_aceito' THEN 1 ELSE 0 END) as orcamento_aceito,
-        SUM(CASE WHEN tipo_alarme = 'orcamento_recusado' THEN 1 ELSE 0 END) as orcamento_recusado,
-        SUM(CASE WHEN prioridade = 'Crítico' THEN 1 ELSE 0 END) as criticos,
-        SUM(CASE WHEN prioridade = 'Alto' THEN 1 ELSE 0 END) as altos,
-        SUM(CASE WHEN prioridade = 'Médio' THEN 1 ELSE 0 END) as medios,
-        SUM(CASE WHEN visto = 0 THEN 1 ELSE 0 END) as nao_vistos
-      FROM (
-        SELECT 
-          CASE 
-            WHEN (r.estadoorcamento IS NULL OR r.estadoorcamento = '' OR r.estadoorcamento = 'Pendente')
-              AND DATEDIFF(CURDATE(), r.dataentrega) >= 15
-            THEN 'sem_orcamento'
-            WHEN r.estadoorcamento IN ('Aceito', 'Aprovado', 'Confirmado') 
-              AND r.data_orcamento_aceito IS NOT NULL
-              AND DATEDIFF(CURDATE(), r.data_orcamento_aceito) >= 30
-            THEN 'orcamento_aceito'
-            WHEN r.estadoorcamento IN ('Recusado', 'Rejeitado', 'Negado')
-              AND r.data_orcamento_recusado IS NOT NULL
-              AND DATEDIFF(CURDATE(), r.data_orcamento_recusado) >= 15
-            THEN 'orcamento_recusado'
-            ELSE NULL
-          END as tipo_alarme,
-          CASE 
-            WHEN (r.estadoorcamento IS NULL OR r.estadoorcamento = '' OR r.estadoorcamento = 'Pendente')
-              AND DATEDIFF(CURDATE(), r.dataentrega) >= 30
-            THEN 'Crítico'
-            WHEN r.estadoorcamento IN ('Aceito', 'Aprovado', 'Confirmado') 
-              AND DATEDIFF(CURDATE(), r.data_orcamento_aceito) >= 60
-            THEN 'Crítico'
-            WHEN r.estadoorcamento IN ('Recusado', 'Rejeitado', 'Negado')
-              AND DATEDIFF(CURDATE(), r.data_orcamento_recusado) >= 45
-            THEN 'Crítico'
-            ELSE 'Médio'
-          END as prioridade,
-          CASE 
-            WHEN (r.estadoorcamento IS NULL OR r.estadoorcamento = '' OR r.estadoorcamento = 'Pendente')
-            THEN r.alarme_visto
-            ELSE 0
-          END as visto
-        FROM reparacao r
-        WHERE (r.estadoreparacao != 'Concluída' AND r.estadoreparacao != 'Entregue')
-      ) as alarmes_calculados
-      WHERE tipo_alarme IS NOT NULL
-    `
-
-        const [rows] = await pool.execute(sql)
-        res.json(rows[0])
-    } catch (err) {
-        handleQueryError(err, res, "Erro ao buscar estatísticas de alarmes")
-    }
-})
+});
 
 // ==================== ROTA PARA GERAR PDF ====================
-
 app.get("/reparacoes/:id/pdf", async (req, res) => {
     const { id } = req.params
 
-    console.log(`📄 Gerando PDF para reparação ID: ${id}`)
+    console.log(`📄 Iniciando geração de PDF para reparação ID: ${id}`)
 
     if (!id || isNaN(id)) {
+        console.error("❌ ID inválido fornecido:", id)
         return res.status(400).json({ error: "ID inválido" })
     }
 
@@ -1277,7 +1529,7 @@ app.get("/reparacoes/:id/pdf", async (req, res) => {
         res.setHeader("Content-Disposition", `inline; filename="orcamento-${id}.pdf"`)
         res.setHeader("Content-Length", pdfBuffer.length)
 
-        console.log("✅ PDF gerado com sucesso!")
+        console.log("✅ PDF enviado com sucesso para o cliente!")
         res.send(pdfBuffer)
     } catch (error) {
         console.error("❌ Erro ao gerar PDF:", error)
@@ -1288,35 +1540,62 @@ app.get("/reparacoes/:id/pdf", async (req, res) => {
     }
 })
 
+// ==================== ROTA DE DEBUG ====================
+app.get("/debug/reparacao/:id", async (req, res) => {
+    const { id } = req.params
+    try {
+        // Buscar dados da reparação
+        const [reparacao] = await pool.execute(
+            "SELECT id, nomemaquina, mao_obra, totalPecas, totalGeral, dataentrega FROM reparacao WHERE id = ?",
+            [id],
+        )
+
+        // Buscar peças da reparação
+        const [pecas] = await pool.execute(
+            "SELECT tipopeca, marca, preco_total FROM pecas_reparacao WHERE reparacao_id = ?",
+            [id],
+        )
+
+        res.json({
+            reparacao: reparacao[0] || null,
+            pecas: pecas,
+            timestamp: new Date().toISOString(),
+        })
+    } catch (err) {
+        console.error("Erro no debug:", err)
+        res.status(500).json({ error: err.message })
+    }
+})
+
 // ==================== ROTAS AUXILIARES ====================
 
+// Endpoint para buscar centros
 app.get("/centros", async (req, res) => {
-    const sql = "SELECT * FROM centroreparacao"
     try {
-        const [results] = await pool.execute(sql)
-        res.json(results)
+        const [rows] = await pool.execute("SELECT * FROM centroreparacao ORDER BY nome")
+        res.json(rows)
     } catch (err) {
-        handleQueryError(err, res, "Erro ao buscar os centros de reparação")
+        handleQueryError(err, res, "Erro ao buscar centros")
     }
 })
 
+// Endpoint para buscar orçamentos
 app.get("/orcamentos", async (req, res) => {
-    const sql = "SELECT * FROM orcamento"
     try {
-        const [results] = await pool.execute(sql)
-        res.json(results)
+        const [rows] = await pool.execute("SELECT * FROM orcamento ORDER BY estado")
+        res.json(rows)
     } catch (err) {
-        handleQueryError(err, res, "Erro ao buscar o Estado do orçamentos")
+        handleQueryError(err, res, "Erro ao buscar orçamentos")
     }
 })
 
+// Endpoint para buscar estados de reparação
 app.get("/estadoReparacoes", async (req, res) => {
-    const sql = "SELECT * FROM estadoreparacao"
     try {
-        const [results] = await pool.execute(sql)
-        res.json(results)
+        const [rows] = await pool.execute("SELECT * FROM estadoreparacao ORDER BY estado")
+        res.json(rows)
     } catch (err) {
-        handleQueryError(err, res, "Erro ao buscar o Estado do orçamentos")
+        handleQueryError(err, res, "Erro ao buscar estados de reparação")
     }
 })
 
@@ -1353,12 +1632,10 @@ app.use((err, req, res, next) => {
     })
 })
 
-// Encerramento gracioso
+// Tratamento de encerramento gracioso
 process.on("SIGINT", async () => {
     console.log("🔄 Encerrando servidor...")
-    server.close(() => {
-        console.log("✅ Servidor HTTP fechado")
-    })
+    server.close(() => console.log("✅ Servidor HTTP fechado"))
     try {
         await pool.end()
         console.log("✅ Pool de conexões fechado")
@@ -1377,6 +1654,7 @@ process.on("uncaughtException", (error) => {
     process.exit(1)
 })
 
-const server = app.listen(8082, () => {
-    console.log("Servidor rodando na porta 8082")
+const PORT = process.env.PORT || 8082
+const server = app.listen(PORT, () => {
+    console.log(`🚀 Servidor rodando na porta ${PORT}`)
 })

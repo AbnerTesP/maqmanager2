@@ -75,10 +75,10 @@ function ReparacoesView() {
     }, [])
 
 
-    const 
-handleStatusFilter = useCallback((e) => {
-        setFilterStatus(e.target.value)
-    }, [])
+    const
+        handleStatusFilter = useCallback((e) => {
+            setFilterStatus(e.target.value)
+        }, [])
 
     // Função para determinar o status da reparação
     const getStatus = useCallback((reparacao) => {
@@ -135,7 +135,8 @@ handleStatusFilter = useCallback((e) => {
                 (reparacao.nomemaquina && reparacao.nomemaquina.toLowerCase().includes(searchTerm.toLowerCase())) ||
                 (reparacao.nomecentro && reparacao.nomecentro.toLowerCase().includes(searchTerm.toLowerCase())) ||
                 (reparacao.estadoreparacao && reparacao.estadoreparacao.toLowerCase().includes(searchTerm.toLowerCase())) ||
-                (reparacao.numreparacao && reparacao.numreparacao.toString().includes(searchTerm))
+                (reparacao.numreparacao && reparacao.numreparacao.toString().includes(searchTerm)) ||
+                (reparacao.cliente_nome && reparacao.cliente_nome.toLowerCase().includes(searchTerm.toLowerCase()))
 
             const matchesStatus = filterStatus === "all" || getStatus(reparacao) === filterStatus
 

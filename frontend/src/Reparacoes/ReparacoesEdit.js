@@ -33,7 +33,7 @@ function ReparacoesEdit() {
     const navigate = useNavigate()
     const { id } = useParams()
 
-    // Estados para peças com preços
+    // Estados para peças com preços e descontos
     const [pecasNecessarias, setPecasNecessarias] = useState([])
     const [originalPecas, setOriginalPecas] = useState([])
     const [novaPeca, setNovaPeca] = useState({
@@ -41,6 +41,9 @@ function ReparacoesEdit() {
         marca: "",
         quantidade: 1,
         preco_unitario: 0,
+        desconto_unitario: 0,
+        desconto_percentual: 0,
+        tipo_desconto: "valor", // 'valor' ou 'percentual'
         observacao: "",
     })
     const [pecasExistentes, setPecasExistentes] = useState([])
@@ -53,12 +56,32 @@ function ReparacoesEdit() {
     const [tipoDesconto, setTipoDesconto] = useState("percentual") // 'percentual' ou 'valor'
 
     // Cálculos automáticos usando useMemo para otimização
-    const totalPecas = useMemo(() => {
+    const totalPecasSemDesconto = useMemo(() => {
         return pecasNecessarias.reduce((total, peca) => {
-            const precoTotal = (Number(peca.preco_unitario) || 0) * (Number(peca.quantidade) || 1)
-            return total + precoTotal
+            const precoOriginal = (Number(peca.preco_unitario) || 0) * (Number(peca.quantidade) || 1)
+            return total + precoOriginal
         }, 0)
     }, [pecasNecessarias])
+
+    const totalDescontosPecas = useMemo(() => {
+        return pecasNecessarias.reduce((total, peca) => {
+            const precoUnitario = Number(peca.preco_unitario) || 0
+            const quantidade = Number(peca.quantidade) || 1
+            let descontoUnitario = 0
+
+            if (peca.tipo_desconto === "percentual") {
+                descontoUnitario = precoUnitario * ((Number(peca.desconto_percentual) || 0) / 100)
+            } else {
+                descontoUnitario = Number(peca.desconto_unitario) || 0
+            }
+
+            return total + descontoUnitario * quantidade
+        }, 0)
+    }, [pecasNecessarias])
+
+    const totalPecas = useMemo(() => {
+        return totalPecasSemDesconto - totalDescontosPecas
+    }, [totalPecasSemDesconto, totalDescontosPecas])
 
     const valorDesconto = useMemo(() => {
         if (tipoDesconto === "percentual") {
@@ -71,10 +94,20 @@ function ReparacoesEdit() {
         return Math.max(0, totalPecas + valorMaoObra - valorDesconto)
     }, [totalPecas, valorMaoObra, valorDesconto])
 
+    // Função para calcular preço com desconto de uma peça
+    const calcularPrecoComDesconto = useCallback((peca) => {
+        const precoUnitario = Number(peca.preco_unitario) || 0;
+        const descontoPercentual = Number(peca.desconto_percentual) || 0;
+
+        const descontoUnitario = precoUnitario * (descontoPercentual / 100);
+
+        return Math.max(0, precoUnitario - descontoUnitario);
+    }, []);
+
+
     // Função para carregar dados auxiliares
     const carregarDadosAuxiliares = useCallback(() => {
         setLoadingData(true)
-
         const promises = [
             axios.get("http://localhost:8082/centros"),
             axios.get("http://localhost:8082/orcamentos"),
@@ -98,7 +131,6 @@ function ReparacoesEdit() {
     const carregarReparacao = useCallback(() => {
         setLoading(true)
         setErro("")
-
         axios
             .get(`http://localhost:8082/reparacoes/${id}`)
             .then((response) => {
@@ -110,8 +142,8 @@ function ReparacoesEdit() {
                     dataconclusao: data.dataconclusao ? data.dataconclusao.split("T")[0] : "",
                     numreparacao: data.numreparacao || "",
                     descricao: data.descricao || "",
+                    cliente_id: String(data.cliente_id || ""),
                 }
-
                 setForm(formattedData)
                 setOriginalForm(formattedData)
 
@@ -123,6 +155,7 @@ function ReparacoesEdit() {
                 const orcamentoAceito =
                     formattedData.estadoorcamento?.toLowerCase().includes("em processo") ||
                     formattedData.estadoorcamento?.toLowerCase().includes("aceite")
+
                 setMostrarPecas(orcamentoAceito)
 
                 if (orcamentoAceito) {
@@ -136,10 +169,9 @@ function ReparacoesEdit() {
             .finally(() => setLoading(false))
     }, [id])
 
-    // Função para carregar peças da reparação
+    // Função para carregar peças da reparação com informações de desconto
     const carregarPecasReparacao = useCallback((reparacaoId) => {
         setLoadingPecas(true)
-
         axios
             .get(`http://localhost:8082/reparacoes/${reparacaoId}/pecas`)
             .then((response) => {
@@ -148,11 +180,14 @@ function ReparacoesEdit() {
                     id: peca.id,
                     quantidade: Number(peca.quantidade) || 1,
                     preco_unitario: Number(peca.preco_unitario) || 0,
-                    preco_total: (Number(peca.preco_unitario) || 0) * (Number(peca.quantidade) || 1),
-                    observacao: peca.observacao || "",
+                    desconto_unitario: Number(peca.desconto_unitario) || 0,
+                    desconto_percentual: Number(peca.desconto_percentual) || 0,
+                    tipo_desconto: peca.tipo_desconto || "valor",
+                    preco_com_desconto: Number(peca.preco_com_desconto) || Number(peca.preco_unitario) || 0,
+                    preco_total: Number(peca.preco_total) || 0,
+                    observacao: peca.observacoes || "",
                     existeNoSistema: peca.existe_no_sistema === 1,
                 }))
-
                 setPecasNecessarias(pecas)
                 setOriginalPecas(JSON.parse(JSON.stringify(pecas)))
             })
@@ -176,7 +211,6 @@ function ReparacoesEdit() {
             form.estadoorcamento?.toLowerCase().includes("em processo") ||
             form.estadoorcamento?.toLowerCase().includes("aceite")
         setMostrarPecas(orcamentoAceito)
-
         if (!orcamentoAceito) {
             setPecasNecessarias([])
         }
@@ -186,7 +220,6 @@ function ReparacoesEdit() {
         (e) => {
             const { name, value } = e.target
             setForm((prev) => ({ ...prev, [name]: value }))
-
             if (validationErrors[name]) {
                 setValidationErrors((prev) => ({ ...prev, [name]: "" }))
             }
@@ -195,7 +228,7 @@ function ReparacoesEdit() {
     )
 
     const handleClienteChange = useCallback((e) => {
-        const clienteId = e.target.value
+        const clienteId = String(e.target.value)
         setForm((prev) => ({ ...prev, cliente_id: clienteId }))
     }, [])
 
@@ -251,13 +284,27 @@ function ReparacoesEdit() {
         [reparacoes],
     )
 
-    // Funções para gerenciar peças
+    // Funções para gerenciar peças com desconto
     const handleNovaPecaChange = useCallback((e) => {
         const { name, value } = e.target
-        setNovaPeca((prev) => ({
-            ...prev,
-            [name]: name === "quantidade" || name === "preco_unitario" ? Number.parseFloat(value) || 0 : value,
-        }))
+        setNovaPeca((prev) => {
+            const updated = {
+                ...prev,
+                [name]: ["quantidade", "preco_unitario", "desconto_unitario", "desconto_percentual"].includes(name)
+                    ? Number.parseFloat(value) || 0
+                    : value,
+            }
+
+            // Validações para desconto
+            if (name === "desconto_percentual" && updated.desconto_percentual > 100) {
+                updated.desconto_percentual = 100
+            }
+            if (name === "desconto_unitario" && updated.desconto_unitario > updated.preco_unitario) {
+                updated.desconto_unitario = updated.preco_unitario
+            }
+
+            return updated
+        })
     }, [])
 
     const verificarPecaExistente = useCallback(
@@ -277,6 +324,16 @@ function ReparacoesEdit() {
             return
         }
 
+        if (novaPeca.quantidade < 1) {
+            setErro("Quantidade deve ser maior que zero.")
+            return
+        }
+
+        if (novaPeca.preco_unitario < 0) {
+            setErro("Preço unitário deve ser maior que zero.")
+            return
+        }
+
         const pecaJaAdicionada = pecasNecessarias.find(
             (peca) =>
                 peca.tipopeca.toLowerCase().trim() === novaPeca.tipopeca.toLowerCase().trim() &&
@@ -289,11 +346,22 @@ function ReparacoesEdit() {
         }
 
         const pecaExistente = verificarPecaExistente(novaPeca.tipopeca, novaPeca.marca)
-        const preco_total = novaPeca.quantidade * novaPeca.preco_unitario
+
+        // Calcular preço com desconto
+        let descontoUnitario = 0
+        if (novaPeca.tipo_desconto === "percentual") {
+            descontoUnitario = novaPeca.preco_unitario * (novaPeca.desconto_percentual / 100)
+        } else {
+            descontoUnitario = novaPeca.desconto_unitario
+        }
+
+        const precoComDesconto = Math.max(0, novaPeca.preco_unitario - descontoUnitario)
+        const preco_total = novaPeca.quantidade * precoComDesconto
 
         const novaPecaCompleta = {
             ...novaPeca,
             id: Date.now(),
+            preco_com_desconto: precoComDesconto,
             preco_total,
             existeNoSistema: !!pecaExistente,
             pecaExistente: pecaExistente || null,
@@ -301,7 +369,16 @@ function ReparacoesEdit() {
         }
 
         setPecasNecessarias((prev) => [...prev, novaPecaCompleta])
-        setNovaPeca({ tipopeca: "", marca: "", quantidade: 1, preco_unitario: 0, observacao: "" })
+        setNovaPeca({
+            tipopeca: "",
+            marca: "",
+            quantidade: 1,
+            preco_unitario: 0,
+            desconto_unitario: 0,
+            desconto_percentual: 0,
+            tipo_desconto: "valor",
+            observacao: "",
+        })
         setErro("")
     }, [novaPeca, pecasNecessarias, verificarPecaExistente])
 
@@ -315,10 +392,24 @@ function ReparacoesEdit() {
                 if (peca.id === pecaId) {
                     const novaPeca = { ...peca, [campo]: valor }
 
-                    // Recalcular preço total se quantidade ou preço unitário mudar
-                    if (campo === "quantidade" || campo === "preco_unitario") {
-                        novaPeca.preco_total = novaPeca.quantidade * novaPeca.preco_unitario
+                    // Validações
+                    if (campo === "desconto_percentual" && novaPeca.desconto_percentual > 100) {
+                        novaPeca.desconto_percentual = 100
                     }
+                    if (campo === "desconto_unitario" && novaPeca.desconto_unitario > novaPeca.preco_unitario) {
+                        novaPeca.desconto_unitario = novaPeca.preco_unitario
+                    }
+
+                    // Recalcular preços
+                    let descontoUnitario = 0
+                    if (novaPeca.tipo_desconto === "percentual") {
+                        descontoUnitario = novaPeca.preco_unitario * (novaPeca.desconto_percentual / 100)
+                    } else {
+                        descontoUnitario = novaPeca.desconto_unitario
+                    }
+
+                    novaPeca.preco_com_desconto = Math.max(0, novaPeca.preco_unitario - descontoUnitario)
+                    novaPeca.preco_total = novaPeca.quantidade * novaPeca.preco_com_desconto
 
                     return novaPeca
                 }
@@ -339,23 +430,18 @@ function ReparacoesEdit() {
 
     const validateForm = useCallback(() => {
         const errors = {}
-
         if (!form.dataentrega) {
             errors.dataentrega = "Data de entrada é obrigatória"
         }
-
         if (!form.nomemaquina.trim()) {
             errors.nomemaquina = "Nome da máquina é obrigatório"
         }
-
         if (!form.estadoreparacao) {
             errors.estadoreparacao = "Estado da reparação é obrigatório"
         }
-
         if (!form.nomecentro) {
             errors.nomecentro = "Centro de reparação é obrigatório"
         }
-
         if (!form.cliente_id) {
             errors.cliente_id = "Cliente é obrigatório"
         }
@@ -364,7 +450,6 @@ function ReparacoesEdit() {
         if (form.dataconclusao && new Date(form.dataconclusao) < new Date(form.dataentrega)) {
             errors.dataconclusao = "Data de conclusão deve ser posterior à data de entrada"
         }
-
         if (form.datasaida && form.dataconclusao && new Date(form.datasaida) < new Date(form.dataconclusao)) {
             errors.datasaida = "Data de saída deve ser posterior à data de conclusão"
         }
@@ -380,7 +465,6 @@ function ReparacoesEdit() {
             valorMaoObra !== (Number(originalForm.mao_obra) || 0) ||
             desconto !== (Number(originalForm.desconto) || 0) ||
             tipoDesconto !== (originalForm.tipo_desconto || "percentual")
-
         return formChanged || pecasChanged || valoresChanged
     }, [form, originalForm, pecasNecessarias, originalPecas, valorMaoObra, desconto, tipoDesconto])
 
@@ -428,9 +512,11 @@ function ReparacoesEdit() {
                             marca: peca.marca,
                             quantidade: peca.quantidade,
                             preco_unitario: peca.preco_unitario,
+                            desconto_unitario: peca.desconto_unitario || 0,
+                            desconto_percentual: peca.desconto_percentual || 0,
+                            tipo_desconto: peca.tipo_desconto || "valor",
                             preco_total: peca.preco_total,
-                            observacao: peca.observacao || "",
-                            mao_obra: valorMaoObra,
+                            observacoes: peca.observacao || "",
                             existe_no_sistema: peca.existeNoSistema,
                         }))
 
@@ -494,10 +580,34 @@ function ReparacoesEdit() {
         () => buscarPecasSimilares(novaPeca.tipopeca),
         [buscarPecasSimilares, novaPeca.tipopeca],
     )
-    const clienteSelecionado = useMemo(
-        () => clientes.find((c) => String(c.id) === String(form.cliente_id)),
-        [clientes, form.cliente_id],
-    )
+    const clienteSelecionado = useMemo(() => {
+        const cliente = clientes.find((c) => String(c.id) === String(form.cliente_id))
+        return cliente
+    }, [clientes, form.cliente_id])
+
+    // Calcular preview da nova peça
+    const previewNovaPeca = useMemo(() => {
+        if (!novaPeca.tipopeca || !novaPeca.marca || novaPeca.preco_unitario <= 0) return null
+
+        let descontoUnitario = 0
+        if (novaPeca.tipo_desconto === "percentual") {
+            descontoUnitario = novaPeca.preco_unitario * (novaPeca.desconto_percentual / 100)
+        } else {
+            descontoUnitario = novaPeca.desconto_unitario
+        }
+
+        const precoComDesconto = Math.max(0, novaPeca.preco_unitario - descontoUnitario)
+        const economia = novaPeca.preco_unitario - precoComDesconto
+        const totalPeca = novaPeca.quantidade * precoComDesconto
+
+        return {
+            precoOriginal: novaPeca.preco_unitario,
+            precoComDesconto,
+            economia,
+            totalPeca,
+            temDesconto: economia > 0,
+        }
+    }, [novaPeca])
 
     if (loading || loadingData) {
         return (
@@ -651,6 +761,7 @@ function ReparacoesEdit() {
                                                 placeholder="Ex: REP-2023-001"
                                             />
                                         </div>
+
                                         <div className="mb-3">
                                             <label className="form-label">
                                                 <i className="bi bi-laptop me-1"></i>
@@ -668,6 +779,7 @@ function ReparacoesEdit() {
                                                 <div className="invalid-feedback">{validationErrors.nomemaquina}</div>
                                             )}
                                         </div>
+
                                         <div className="mb-3">
                                             <label className="form-label">
                                                 <i className="bi bi-chat-left-text me-1"></i>
@@ -683,6 +795,7 @@ function ReparacoesEdit() {
                                             />
                                             <div className="form-text">Descrição detalhada do problema ou serviço</div>
                                         </div>
+
                                         <div className="mb-3">
                                             <label className="form-label">
                                                 <i className="bi bi-building me-1"></i>
@@ -840,8 +953,8 @@ function ReparacoesEdit() {
                                                 className="form-control"
                                                 value={valorMaoObra === 0 && valorMaoObra !== "" ? "" : valorMaoObra}
                                                 onChange={(e) => {
-                                                    const val = e.target.value;
-                                                    setValorMaoObra(val === "" ? 0 : Number.parseFloat(val));
+                                                    const val = e.target.value
+                                                    setValorMaoObra(val === "" ? 0 : Number.parseFloat(val))
                                                 }}
                                                 min="0"
                                                 step="0.01"
@@ -852,7 +965,7 @@ function ReparacoesEdit() {
                                         <div className="mb-3">
                                             <label className="form-label">
                                                 <i className="bi bi-percent me-1"></i>
-                                                Desconto
+                                                Desconto Geral
                                             </label>
                                             <div className="input-group">
                                                 <input
@@ -860,8 +973,8 @@ function ReparacoesEdit() {
                                                     className="form-control"
                                                     value={desconto === 0 && desconto !== "" ? "" : desconto}
                                                     onChange={(e) => {
-                                                        const val = e.target.value;
-                                                        setDesconto(val === "" ? 0 : Number.parseFloat(val));
+                                                        const val = e.target.value
+                                                        setDesconto(val === "" ? 0 : Number.parseFloat(val))
                                                     }}
                                                     min="0"
                                                     step="0.01"
@@ -904,12 +1017,20 @@ function ReparacoesEdit() {
                                                         <small className="text-muted">Total</small>
                                                     </div>
                                                 </div>
-                                                {valorDesconto > 0 && (
+                                                {(valorDesconto > 0 || totalDescontosPecas > 0) && (
                                                     <div className="mt-2 text-center">
-                                                        <small className="text-warning">
-                                                            <i className="bi bi-dash-circle me-1"></i>
-                                                            Desconto: {valorDesconto.toFixed(2)}€
-                                                        </small>
+                                                        {totalDescontosPecas > 0 && (
+                                                            <small className="text-warning d-block">
+                                                                <i className="bi bi-tag me-1"></i>
+                                                                Descontos em peças: {totalDescontosPecas.toFixed(2)}€
+                                                            </small>
+                                                        )}
+                                                        {valorDesconto > 0 && (
+                                                            <small className="text-warning d-block">
+                                                                <i className="bi bi-dash-circle me-1"></i>
+                                                                Desconto geral: {valorDesconto.toFixed(2)}€
+                                                            </small>
+                                                        )}
                                                     </div>
                                                 )}
                                             </div>
@@ -940,8 +1061,8 @@ function ReparacoesEdit() {
                                             </div>
                                         ) : (
                                             <>
-                                                {/* Adicionar Nova Peça */}
-                                                <div className="card mb-3">
+                                                {/* Adicionar Nova Peça com Desconto */}
+                                                <div className="card mb-4">
                                                     <div className="card-header bg-primary text-white">
                                                         <h6 className="mb-0">
                                                             <i className="bi bi-plus-circle me-2"></i>
@@ -950,8 +1071,8 @@ function ReparacoesEdit() {
                                                     </div>
                                                     <div className="card-body">
                                                         <div className="row g-3">
-                                                            <div className="col-md-3">
-                                                                <label className="form-label">Designação</label>
+                                                            <div className="col-md-6">
+                                                                <label className="form-label">Designação *</label>
                                                                 <input
                                                                     type="text"
                                                                     className="form-control"
@@ -969,8 +1090,8 @@ function ReparacoesEdit() {
                                                                     </datalist>
                                                                 )}
                                                             </div>
-                                                            <div className="col-md-3">
-                                                                <label className="form-label">Descrição Interna</label>
+                                                            <div className="col-md-2">
+                                                                <label className="form-label">Ref. Interna *</label>
                                                                 <input
                                                                     type="text"
                                                                     className="form-control"
@@ -980,8 +1101,8 @@ function ReparacoesEdit() {
                                                                     placeholder="Ex: Bosch, Mann..."
                                                                 />
                                                             </div>
-                                                            <div className="col-md-2">
-                                                                <label className="form-label">Quantidade</label>
+                                                            <div className="col-md-1">
+                                                                <label className="form-label">Qtd*</label>
                                                                 <input
                                                                     type="number"
                                                                     className="form-control"
@@ -991,28 +1112,144 @@ function ReparacoesEdit() {
                                                                     min="1"
                                                                 />
                                                             </div>
-                                                            <div className="col-md-2">
-                                                                <label className="form-label">Preço Unit. (€)</label>
+                                                            <div className="col-md-1">
+                                                                <label className="form-label">Preço(€) *</label>
                                                                 <input
-                                                                    type="number"
+                                                                    type="text"
                                                                     className="form-control"
                                                                     name="preco_unitario"
                                                                     value={novaPeca.preco_unitario}
-                                                                    onChange={handleNovaPecaChange}
-                                                                    min="0"
-                                                                    step="0.01"
+                                                                    onChange={(e) => {
+                                                                        let value = e.target.value.replace(',', '.');
+
+                                                                        // Remove caracteres não numéricos, exceto o ponto
+                                                                        value = value.replace(/[^0-9.]/g, '');
+
+                                                                        // Garante apenas um ponto decimal
+                                                                        const parts = value.split('.');
+                                                                        if (parts.length > 2) {
+                                                                            value = parts[0] + '.' + parts.slice(1).join('');
+                                                                        }
+
+                                                                        // Atualiza o estado corretamente
+                                                                        setNovaPeca(prev => ({
+                                                                            ...prev,
+                                                                            preco_unitario: value
+                                                                        }));
+                                                                    }}
                                                                     placeholder="0.00"
                                                                 />
                                                             </div>
+
                                                             <div className="col-md-2">
                                                                 <label className="form-label">&nbsp;</label>
-                                                                <button type="button" className="btn btn-primary w-100" onClick={adicionarPeca}>
-                                                                    <i className="bi bi-plus-lg"></i>
-                                                                </button>
+                                                                <div
+                                                                    className="position-relative"
+                                                                    title={
+                                                                        !novaPeca.tipopeca
+                                                                            ? "Preencha a designação"
+                                                                            : !novaPeca.marca
+                                                                                ? "Preencha a marca"
+                                                                                : novaPeca.quantidade < 1
+                                                                                    ? "Quantidade deve ser maior que 0"
+                                                                                    : novaPeca.preco_unitario < 0
+                                                                                        ? "Preço deve ser maior que 0"
+                                                                                        : "Clique para adicionar a peça"
+                                                                    }
+                                                                >
+                                                                    <button
+                                                                        type="button"
+                                                                        className={`btn w-50 d-flex align-items-center justify-content-center ${!novaPeca.tipopeca ||
+                                                                            !novaPeca.marca ||
+                                                                            novaPeca.quantidade < 1 ||
+                                                                            novaPeca.preco_unitario < 0
+                                                                            ? "btn-outline-secondary"
+                                                                            : "btn-success"
+                                                                            }`}
+                                                                        onClick={adicionarPeca}
+                                                                        disabled={
+                                                                            !novaPeca.tipopeca ||
+                                                                            !novaPeca.marca ||
+                                                                            novaPeca.quantidade < 1 ||
+                                                                            novaPeca.preco_unitario < 0
+                                                                        }
+                                                                        style={{
+                                                                            transition: "all 0.3s ease",
+                                                                            transform:
+                                                                                !novaPeca.tipopeca ||
+                                                                                    !novaPeca.marca ||
+                                                                                    novaPeca.quantidade < 1 ||
+                                                                                    novaPeca.preco_unitario < 0
+                                                                                    ? "scale(0.95)"
+                                                                                    : "scale(1)",
+                                                                        }}
+                                                                    >
+                                                                        <i></i>
+                                                                        Adicionar
+                                                                    </button>
+                                                                </div>
                                                             </div>
                                                         </div>
+
+                                                        {/* Campos de Desconto */}
                                                         <div className="row g-3 mt-2">
-                                                            <div className="col-12">
+                                                            <div className="col-md-2">
+                                                                <label className="form-label">Tipo de Desconto</label>
+                                                                <select
+                                                                    className="form-select"
+                                                                    name="tipo_desconto"
+                                                                    value="percentual" // Valor fixo
+                                                                    disabled // Seleção desativada
+                                                                >
+                                                                    <option value="percentual">Percentual(%)</option>
+                                                                </select>
+                                                            </div>
+
+                                                            <div className="col-md-1">
+                                                                <label className="form-label">Desc(%)</label>
+                                                                <input
+                                                                    type="text"
+                                                                    className="form-control"
+                                                                    name="desconto_percentual"
+                                                                    value={novaPeca.desconto_percentual}
+                                                                    onChange={(e) => {
+                                                                        let value = e.target.value.replace(',', '.');
+
+                                                                        // Remove tudo exceto números e ponto
+                                                                        value = value.replace(/[^0-9.]/g, '');
+
+                                                                        // Garante apenas um ponto decimal
+                                                                        const parts = value.split('.');
+                                                                        if (parts.length > 2) {
+                                                                            value = parts[0] + '.' + parts.slice(1).join('');
+                                                                        }
+
+                                                                        // Limita a 100%
+                                                                        const floatValue = parseFloat(value);
+                                                                        if (!isNaN(floatValue) && floatValue > 100) value = '100';
+
+                                                                        handleNovaPecaChange({
+                                                                            ...e,
+                                                                            target: {
+                                                                                ...e.target,
+                                                                                name: "desconto_percentual",
+                                                                                value
+                                                                            }
+                                                                        });
+                                                                    }}
+                                                                    placeholder="0"
+                                                                    inputMode="decimal"
+                                                                    style={{
+                                                                        WebkitAppearance: 'none',
+                                                                        MozAppearance: 'textfield',
+                                                                        margin: 0
+                                                                    }}
+                                                                    onWheel={(e) => e.currentTarget.blur()} // previne alteração via scroll
+                                                                    lang="pt-PT"
+                                                                />
+                                                            </div>
+
+                                                            <div className="col-md-6">
                                                                 <label className="form-label">Observações</label>
                                                                 <input
                                                                     type="text"
@@ -1024,6 +1261,46 @@ function ReparacoesEdit() {
                                                                 />
                                                             </div>
                                                         </div>
+
+                                                        {/* Preview da Nova Peça */}
+                                                        {previewNovaPeca && (
+                                                            <div className="mt-3">
+                                                                <div className="alert alert-info">
+                                                                    <h6 className="alert-heading">
+                                                                        <i className="bi bi-eye me-2"></i>
+                                                                        Preview da Peça
+                                                                    </h6>
+                                                                    <div className="row">
+                                                                        <div className="col-md-3">
+                                                                            <strong>Preço Original:</strong>
+                                                                            <br />
+                                                                            <span className="text-muted">€{previewNovaPeca.precoOriginal.toFixed(2)}</span>
+                                                                        </div>
+                                                                        {previewNovaPeca.temDesconto && (
+                                                                            <div className="col-md-3">
+                                                                                <strong>Economia:</strong>
+                                                                                <br />
+                                                                                <span className="text-success">-€{previewNovaPeca.economia.toFixed(2)}</span>
+                                                                            </div>
+                                                                        )}
+                                                                        <div className="col-md-3">
+                                                                            <strong>Preço Final:</strong>
+                                                                            <br />
+                                                                            <span className="text-primary">
+                                                                                €{previewNovaPeca.precoComDesconto.toFixed(2)}
+                                                                            </span>
+                                                                        </div>
+                                                                        <div className="col-md-3">
+                                                                            <strong>Total:</strong>
+                                                                            <br />
+                                                                            <span className="text-success fw-bold">
+                                                                                €{previewNovaPeca.totalPeca.toFixed(2)}
+                                                                            </span>
+                                                                        </div>
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                        )}
                                                     </div>
                                                 </div>
 
@@ -1041,106 +1318,158 @@ function ReparacoesEdit() {
                                                                 <table className="table table-hover">
                                                                     <thead>
                                                                         <tr>
-                                                                            <th>Tipo de Peça</th>
-                                                                            <th>Desc. Interna</th>
-                                                                            <th>Qtd</th>
-                                                                            <th>Preço Unit. (€)</th>
-                                                                            <th>Total (€)</th>
-                                                                            <th>Status</th>
-                                                                            <th>Ações</th>
+                                                                            <th style={{ width: "25%" }}>Tipo de Peça</th>
+                                                                            <th style={{ width: "10%" }}>Ref. Interna</th>
+                                                                            <th className="text-start">Qtd</th>
+                                                                            <th className="text-start">Preço Unit. (€)</th>
+                                                                            <th className="text-start">Desconto</th>
+                                                                            <th className="text-start">Preço Final (€)</th>
+                                                                            <th className="text-start">Total (€)</th>
+                                                                            <th className="text-start">Ações</th>
                                                                         </tr>
                                                                     </thead>
                                                                     <tbody>
-                                                                        {pecasNecessarias.map((peca) => (
-                                                                            <tr key={peca.id}>
-                                                                                <td>
-                                                                                    <input
-                                                                                        type="text"
-                                                                                        className="form-control form-control-sm"
-                                                                                        value={peca.tipopeca}
-                                                                                        onChange={(e) => atualizarPeca(peca.id, "tipopeca", e.target.value)}
-                                                                                    />
-                                                                                    {peca.isNew && <span className="badge bg-primary ms-1">Nova</span>}
-                                                                                </td>
-                                                                                <td>
-                                                                                    <input
-                                                                                        type="text"
-                                                                                        className="form-control form-control-sm"
-                                                                                        value={peca.marca}
-                                                                                        onChange={(e) => atualizarPeca(peca.id, "marca", e.target.value)}
-                                                                                    />
-                                                                                </td>
-                                                                                <td>
-                                                                                    <input
-                                                                                        type="number"
-                                                                                        className="form-control form-control-sm"
-                                                                                        value={peca.quantidade}
-                                                                                        onChange={(e) =>
-                                                                                            atualizarPeca(
-                                                                                                peca.id,
-                                                                                                "quantidade",
-                                                                                                Number.parseFloat(e.target.value) || 1,
-                                                                                            )
-                                                                                        }
-                                                                                        min="1"
-                                                                                        style={{ width: "70px" }}
-                                                                                    />
-                                                                                </td>
-                                                                                <td>
-                                                                                    <input
-                                                                                        type="number"
-                                                                                        className="form-control form-control-sm"
-                                                                                        value={peca.preco_unitario}
-                                                                                        onChange={(e) =>
-                                                                                            atualizarPeca(
-                                                                                                peca.id,
-                                                                                                "preco_unitario",
-                                                                                                Number.parseFloat(e.target.value) || 0,
-                                                                                            )
-                                                                                        }
-                                                                                        min="0"
-                                                                                        step="0.01"
-                                                                                        style={{ width: "100px" }}
-                                                                                    />
-                                                                                </td>
-                                                                                <td>
-                                                                                    <strong className="text-success">
-                                                                                        {peca.preco_total?.toFixed(2) || "0.00"}€
-                                                                                    </strong>
-                                                                                </td>
-                                                                                <td>
-                                                                                    {peca.existeNoSistema ? (
-                                                                                        <span className="badge bg-success">
-                                                                                            <i className="bi bi-check-circle me-1"></i>
-                                                                                            Existe
-                                                                                        </span>
-                                                                                    ) : (
-                                                                                        <span className="badge bg-warning">
-                                                                                            <i className="bi bi-exclamation-circle me-1"></i>
-                                                                                            Nova
-                                                                                        </span>
-                                                                                    )}
-                                                                                </td>
-                                                                                <td>
-                                                                                    <button
-                                                                                        type="button"
-                                                                                        className="btn btn-outline-danger btn-sm"
-                                                                                        onClick={() => removerPeca(peca.id)}
-                                                                                        title="Remover peça"
-                                                                                    >
-                                                                                        <i className="bi bi-trash"></i>
-                                                                                    </button>
-                                                                                </td>
-                                                                            </tr>
-                                                                        ))}
+                                                                        {pecasNecessarias.map((peca) => {
+                                                                            const precoComDesconto = calcularPrecoComDesconto(peca)
+                                                                            const economia = peca.preco_unitario - precoComDesconto
+
+                                                                            return (
+                                                                                <tr key={peca.id}>
+                                                                                    {/* Tipo de Peça */}
+                                                                                    <td>
+                                                                                        <div className="d-flex align-items-center">
+                                                                                            <input
+                                                                                                type="text"
+                                                                                                className="form-control form-control-sm"
+                                                                                                value={peca.tipopeca}
+                                                                                                onChange={(e) => atualizarPeca(peca.id, "tipopeca", e.target.value)}
+                                                                                            />
+                                                                                            {peca.isNew && <span className="badge bg-primary ms-1">Nova</span>}
+                                                                                        </div>
+                                                                                    </td>
+                                                                                    <td>
+                                                                                        <input
+                                                                                            type="text"
+                                                                                            className="form-control form-control-sm"
+                                                                                            value={peca.marca}
+                                                                                            onChange={(e) => atualizarPeca(peca.id, "marca", e.target.value)}
+                                                                                        />
+                                                                                    </td>
+                                                                                    <td>
+                                                                                        <input
+                                                                                            type="number"
+                                                                                            className="form-control form-control-sm absolute-center"
+                                                                                            value={peca.quantidade}
+                                                                                            onChange={(e) =>
+                                                                                                atualizarPeca(
+                                                                                                    peca.id,
+                                                                                                    "quantidade",
+                                                                                                    Number.parseFloat(e.target.value) || 1,
+                                                                                                )
+                                                                                            }
+                                                                                            min="1"
+                                                                                            style={{ width: "40px" }}
+                                                                                        />
+                                                                                    </td>
+                                                                                    <td className="content-center">
+                                                                                        <input
+                                                                                            type="number"
+                                                                                            className="form-control form-control-sm "
+                                                                                            value={peca.preco_unitario}
+                                                                                            onChange={(e) =>
+                                                                                                atualizarPeca(
+                                                                                                    peca.id,
+                                                                                                    "preco_unitario",
+                                                                                                    Number.parseFloat(e.target.value) || 0,
+                                                                                                )
+                                                                                            }
+                                                                                            min="0"
+                                                                                            step="0.01"
+                                                                                            style={{ width: "80px" }}
+                                                                                        />
+                                                                                    </td>
+                                                                                    <td>
+                                                                                        <div className="d-flex align-items-right gap-1">
+                                                                                            <input
+                                                                                                type="number"
+                                                                                                className="form-control form-control-sm "
+                                                                                                value={peca.desconto_percentual === 0 ? "" : peca.desconto_percentual}
+                                                                                                onChange={(e) => {
+                                                                                                    const raw = e.target.value.replace(',', '.');
+                                                                                                    const parsed = parseFloat(raw);
+                                                                                                    atualizarPeca(peca.id, "desconto_percentual", isNaN(parsed) ? 0 : parsed);
+                                                                                                }}
+                                                                                                min="0"
+                                                                                                max="100"
+                                                                                                step="0.01"
+                                                                                                style={{ width: "70px" }}
+                                                                                                onWheel={(e) => e.currentTarget.blur()}
+                                                                                                placeholder="0"
+                                                                                                lang="pt-PT"
+                                                                                            />
+                                                                                        </div>
+
+                                                                                        {economia > 0 && (
+                                                                                            <small className="text-success">
+                                                                                                <i className="bi bi-tag-fill me-1"></i>
+                                                                                                {`${peca.desconto_percentual}%`}
+                                                                                            </small>
+                                                                                        )}
+                                                                                    </td>
+
+                                                                                    <td>
+                                                                                        <strong className={economia > 0 ? "text-success" : "text-primary"}>
+                                                                                            {precoComDesconto.toFixed(2)}€
+                                                                                        </strong>
+                                                                                        {economia > 0 && (
+                                                                                            <div>
+                                                                                                <small className="text-muted text-decoration-line-through">
+                                                                                                    {peca.preco_unitario.toFixed(2)}€
+                                                                                                </small>
+                                                                                            </div>
+                                                                                        )}
+                                                                                    </td>
+                                                                                    <td>
+                                                                                        <strong className="text-success text-end">
+                                                                                            {peca.preco_total?.toFixed(2) || "0.00"}€
+                                                                                        </strong>
+                                                                                        {economia > 0 && (
+                                                                                            <div>
+                                                                                                <small className="text-success">
+                                                                                                    <i className="bi bi-arrow-down me-1"></i>-
+                                                                                                    {(economia * peca.quantidade).toFixed(2)}€
+                                                                                                </small>
+                                                                                            </div>
+                                                                                        )}
+                                                                                    </td>
+                                                                                    <td>
+                                                                                        <button
+                                                                                            type="button"
+                                                                                            className="btn btn-outline-danger btn-sm"
+                                                                                            onClick={() => removerPeca(peca.id)}
+                                                                                            title="Remover peça"
+                                                                                        >
+                                                                                            <i className="bi bi-trash"></i>
+                                                                                        </button>
+                                                                                    </td>
+                                                                                </tr>
+                                                                            )
+                                                                        })}
                                                                     </tbody>
                                                                     <tfoot>
                                                                         <tr className="table-success">
-                                                                            <td colSpan="4" className="text-end fw-bold">
+                                                                            <td colSpan="6" className="text-end fw-bold">
                                                                                 Total das Peças:
                                                                             </td>
                                                                             <td className="fw-bold text-success">{totalPecas.toFixed(2)}€</td>
-                                                                            <td colSpan="2"></td>
+                                                                            <td colSpan="2">
+                                                                                {totalDescontosPecas > 0 && (
+                                                                                    <small className="text-success">
+                                                                                        <i className="bi bi-piggy-bank me-1"></i>
+                                                                                        Economia: {totalDescontosPecas.toFixed(2)}€
+                                                                                    </small>
+                                                                                )}
+                                                                            </td>
                                                                         </tr>
                                                                     </tfoot>
                                                                 </table>
@@ -1198,6 +1527,129 @@ function ReparacoesEdit() {
                     </form>
                 </div>
             </div>
+
+            <style jsx>{`
+                .card {
+                    border: none;
+                    border-radius: 10px;
+                    margin-bottom: 20px;
+                }
+                
+                .card-header {
+                    border-radius: 10px 10px 0 0 !important;
+                    border: none;
+                }
+                
+                .form-control:focus, .form-select:focus {
+                    border-color: #0d6efd;
+                    box-shadow: 0 0 0 0.2rem rgba(13, 110, 253, 0.25);
+                }
+                
+                .btn-success {
+                    background-color: #198754;
+                    border-color: #198754;
+                    transition: all 0.3s ease;
+                }
+                
+                .btn-success:hover:not(:disabled) {
+                    background-color: #157347;
+                    border-color: #146c43;
+                    transform: translateY(-1px);
+                    box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+                }
+                
+                .btn-success:disabled {
+                    opacity: 0.6;
+                    transform: none;
+                }
+                
+                .btn-outline-warning:hover {
+                    background-color: #ffc107;
+                    color: #000;
+                }
+                
+                .btn-outline-secondary:hover {
+                    background-color: #6c757d;
+                    color: white;
+                }
+                
+                .invalid-feedback {
+                    display: block;
+                }
+                
+                .badge {
+                    font-size: 0.75em;
+                    padding: 0.5em 0.75em;
+                    border-radius: 20px;
+                }
+                
+                .table th {
+                    background-color: #f8f9fa;
+                    border-top: none;
+                    font-weight: 600;
+                    font-size: 0.9em;
+                }
+                
+                .table td {
+                    vertical-align: middle;
+                }
+
+                .input-xs { width: 20px; }
+                .input-sm { width: 90px; }
+                .input-md { width: 120px; }
+                .input-lg { width: 150px; }
+                
+                .form-control-sm {
+                    font-size: 0.90rem;
+                }
+                
+                .text-decoration-line-through {
+                    text-decoration: line-through !important;
+                }
+                
+                @media (max-width: 768px) {
+                    .card-header h4 {
+                        font-size: 1.1rem;
+                    }
+                    
+                    .d-flex.justify-content-between {
+                        flex-direction: column;
+                    }
+                    
+                    .d-flex.gap-2 {
+                        justify-content: center;
+                        margin-bottom: 10px;
+                    }
+                    
+                    .btn {
+                        padding: 0.375rem 0.75rem;
+                        font-size: 0.9rem;
+                    }
+                    
+                    .table-responsive {
+                        font-size: 0.8rem;
+                    }
+                    
+                    .form-control-sm {
+                        font-size: 0.75rem;
+                    }
+                }
+                
+                .position-relative [title]:hover::after {
+                    content: attr(title);
+                    position: absolute;
+                    bottom: 100%;
+                    left: 50%;
+                    transform: translateX(-50%);
+                    background: rgba(0,0,0,0.8);
+                    color: white;
+                    padding: 4px 8px;
+                    border-radius: 4px;
+                    font-size: 0.75rem;
+                    white-space: nowrap;
+                    z-index: 1000;
+                }
+            `}</style>
         </div>
     )
 }

@@ -1,113 +1,81 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { Card, Row, Col, Badge, Button, Alert, Modal, Form, Toast, ToastContainer } from "react-bootstrap"
 
-function AlarmesSistema() {
+const AlarmesSistema = () => {
     const [alarmes, setAlarmes] = useState([])
+    const [stats, setStats] = useState({})
     const [loading, setLoading] = useState(true)
-    const [error, setError] = useState(null)
-    const [filtroTipo, setFiltroTipo] = useState("todos")
-    const [filtroPrioridade, setFiltroPrioridade] = useState("todos")
     const [showModal, setShowModal] = useState(false)
-    const [alarmeDetalhes, setAlarmeDetalhes] = useState(null)
-    const [showToast, setShowToast] = useState(false)
-    const [toastMessage, setToastMessage] = useState("")
-    const [estatisticas, setEstatisticas] = useState({})
+    const [selectedAlarme, setSelectedAlarme] = useState(null)
+    const [showAllAlarmes, setShowAllAlarmes] = useState(false)
+    const [filtroAtivo, setFiltroAtivo] = useState("todos") // todos, criticos, altos, medios
 
-    useEffect(() => {
-        carregarAlarmes()
-        carregarEstatisticas()
-    }, [])
-
-    const carregarAlarmes = async () => {
+    // Buscar alarmes
+    const fetchAlarmes = async () => {
         try {
-            setLoading(true)
-            const response = await fetch("/api/alarmes")
-            if (!response.ok) throw new Error("Erro ao carregar alarmes")
+            const [alarmesRes, statsRes] = await Promise.all([
+                fetch("http://localhost:8082/alarmes/todos"),
+                fetch("http://localhost:8082/alarmes/estatisticas"),
+            ])
 
-            const data = await response.json()
-            setAlarmes(data)
-        } catch (err) {
-            setError(err.message)
+            const alarmesData = await alarmesRes.json()
+            const statsData = await statsRes.json()
+
+            setAlarmes(alarmesData)
+            setStats(statsData)
+        } catch (error) {
+            console.error("Erro ao buscar alarmes:", error)
         } finally {
             setLoading(false)
         }
     }
 
-    const carregarEstatisticas = async () => {
+    // Marcar alarme como visto
+    const marcarComoVisto = async (alarmeId, tipoAlarme) => {
         try {
-            const response = await fetch("/api/alarmes/estatisticas")
-            if (!response.ok) throw new Error("Erro ao carregar estatísticas")
+            await fetch(`http://localhost:8082/alarmes/marcar-visto/${alarmeId}`, {
+                method: "PUT",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ tipo_alarme: tipoAlarme }),
+            })
 
-            const data = await response.json()
-            setEstatisticas(data)
-        } catch (err) {
-            console.error("Erro ao carregar estatísticas:", err)
+            fetchAlarmes() // Recarregar dados
+            setShowModal(false)
+        } catch (error) {
+            console.error("Erro ao marcar alarme:", error)
         }
     }
 
-    const marcarComoVisto = async (alarmeId, tipo = null) => {
-        try {
-            const url = tipo ? `/api/alarmes/marcar-visto/${tipo}` : `/api/alarmes/marcar-visto/${alarmeId}`
-            const response = await fetch(url, { method: "PUT" })
-
-            if (!response.ok) throw new Error("Erro ao marcar alarme como visto")
-
-            await carregarAlarmes()
-            await carregarEstatisticas()
-
-            setToastMessage(tipo ? `Todos os alarmes de ${tipo} marcados como vistos` : "Alarme marcado como visto")
-            setShowToast(true)
-        } catch (err) {
-            setError(err.message)
-        }
-    }
-
-    const verDetalhes = async (alarmeId) => {
-        try {
-            const response = await fetch(`/api/alarmes/${alarmeId}`)
-            if (!response.ok) throw new Error("Erro ao carregar detalhes")
-
-            const data = await response.json()
-            setAlarmeDetalhes(data)
-            setShowModal(true)
-        } catch (err) {
-            setError(err.message)
-        }
-    }
-
-    const alarmesFiltrados = alarmes.filter((alarme) => {
-        const filtroTipoOk = filtroTipo === "todos" || alarme.tipo_alarme === filtroTipo
-        const filtroPrioridadeOk = filtroPrioridade === "todos" || alarme.prioridade === filtroPrioridade
-        return filtroTipoOk && filtroPrioridadeOk
-    })
+    useEffect(() => {
+        fetchAlarmes()
+        const interval = setInterval(fetchAlarmes, 300000) // 5 min
+        return () => clearInterval(interval)
+    }, [])
 
     const getPrioridadeColor = (prioridade) => {
         switch (prioridade) {
-            case "critico":
-                return "danger"
-            case "alto":
-                return "warning"
-            case "medio":
-                return "info"
-            case "baixo":
-                return "secondary"
+            case "Crítico":
+                return "#dc2626"
+            case "Alto":
+                return "#ea580c"
+            case "Médio":
+                return "#ca8a04"
             default:
-                return "secondary"
+                return "#16a34a"
         }
     }
 
-    const getTipoIcon = (tipo) => {
+    const getTipoEmoji = (tipo) => {
         switch (tipo) {
             case "sem_orcamento":
-                return "bi-clipboard-x"
+                return "📋"
             case "orcamento_aceito":
-                return "bi-check-circle"
+                return "✅"
             case "orcamento_recusado":
-                return "bi-x-circle"
+                return "❌"
             default:
-                return "bi-bell"
+                return "⚠️"
         }
     }
 
@@ -124,257 +92,465 @@ function AlarmesSistema() {
         }
     }
 
+    // Filtrar alarmes baseado no filtro ativo
+    const alarmesFiltrados = alarmes.filter((alarme) => {
+        if (filtroAtivo === "todos") return true
+        if (filtroAtivo === "criticos") return alarme.prioridade === "Crítico"
+        if (filtroAtivo === "altos") return alarme.prioridade === "Alto"
+        if (filtroAtivo === "medios") return alarme.prioridade === "Médio"
+        return true
+    })
+
+    // Determinar quantos alarmes mostrar
+    const alarmesParaMostrar = showAllAlarmes ? alarmesFiltrados : alarmesFiltrados.slice(0, 5)
+
     if (loading) {
-        return (
-            <div className="container-fluid py-4">
-                <div className="text-center">
-                    <div className="spinner-border text-primary" role="status">
-                        <span className="visually-hidden">Carregando...</span>
-                    </div>
-                    <p className="mt-2">Carregando alarmes...</p>
-                </div>
-            </div>
-        )
+        return <div style={{ padding: 10, fontSize: 14 }}>🔄 Carregando alarmes...</div>
     }
 
     return (
-        <div className="container-fluid py-4">
-            <div className="d-flex justify-content-between align-items-center mb-4">
-                <h2>
-                    <i className="bi bi-bell-fill me-2 text-warning"></i>
-                    Sistema de Alarmes
+        <div style={{
+            fontFamily: "system-ui, sans-serif",
+            background: "#f1f5f9",
+            borderRadius: 10,
+            padding: 20,
+            boxShadow: "0 2px 8px rgba(0,0,0,0.05)",
+            maxWidth: 600,
+            margin: "0 auto",
+        }}>
+            <header style={{ marginBottom: 16 }}>
+                <h2 style={{ fontSize: 18, fontWeight: 600, display: "flex", alignItems: "center", gap: 8 }}>
+                    🚨 Alarmes do Sistema
+                    <span style={{
+                        background: "#e2e8f0",
+                        padding: "2px 6px",
+                        borderRadius: 8,
+                        fontSize: 12,
+                    }}>{alarmesFiltrados.length}</span>
                 </h2>
-                <Button variant="outline-primary" onClick={carregarAlarmes}>
-                    <i className="bi bi-arrow-clockwise me-1"></i>
-                    Atualizar
-                </Button>
+            </header>
+
+            {/* Filtros de Prioridade */}
+            <div style={{
+                display: "flex",
+                gap: 6,
+                marginBottom: 16,
+                flexWrap: "wrap",
+            }}>
+                <button
+                    onClick={() => setFiltroAtivo("todos")}
+                    style={{
+                        background: filtroAtivo === "todos" ? "rgba(0,0,0,0.1)" : "transparent",
+                        border: "1px solid #d1d5db",
+                        padding: "4px 8px",
+                        borderRadius: 6,
+                        fontSize: 12,
+                        cursor: "pointer",
+                        transition: "all 0.2s",
+                    }}
+                >
+                    Todos ({alarmes.length})
+                </button>
+                <button
+                    onClick={() => setFiltroAtivo("criticos")}
+                    style={{
+                        background: filtroAtivo === "criticos" ? "rgba(220, 38, 38, 0.1)" : "transparent",
+                        border: "1px solid rgba(220, 38, 38, 0.3)",
+                        color: filtroAtivo === "criticos" ? "#dc2626" : "inherit",
+                        padding: "4px 8px",
+                        borderRadius: 6,
+                        fontSize: 12,
+                        cursor: "pointer",
+                        transition: "all 0.2s",
+                    }}
+                >
+                    Críticos ({stats.criticos || 0})
+                </button>
+                <button
+                    onClick={() => setFiltroAtivo("altos")}
+                    style={{
+                        background: filtroAtivo === "altos" ? "rgba(234, 88, 12, 0.1)" : "transparent",
+                        border: "1px solid rgba(234, 88, 12, 0.3)",
+                        color: filtroAtivo === "altos" ? "#ea580c" : "inherit",
+                        padding: "4px 8px",
+                        borderRadius: 6,
+                        fontSize: 12,
+                        cursor: "pointer",
+                        transition: "all 0.2s",
+                    }}
+                >
+                    Altos ({stats.altos || 0})
+                </button>
+                <button
+                    onClick={() => setFiltroAtivo("medios")}
+                    style={{
+                        background: filtroAtivo === "medios" ? "rgba(202, 138, 4, 0.1)" : "transparent",
+                        border: "1px solid rgba(202, 138, 4, 0.3)",
+                        color: filtroAtivo === "medios" ? "#ca8a04" : "inherit",
+                        padding: "4px 8px",
+                        borderRadius: 6,
+                        fontSize: 12,
+                        cursor: "pointer",
+                        transition: "all 0.2s",
+                    }}
+                >
+                    Médios ({stats.medios || 0})
+                </button>
             </div>
 
-            {error && (
-                <Alert variant="danger" dismissible onClose={() => setError(null)}>
-                    <i className="bi bi-exclamation-triangle me-2"></i>
-                    {error}
-                </Alert>
-            )}
+            {/* Stats */}
+            <section style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(4, 1fr)",
+                gap: 10,
+                marginBottom: 20,
+            }}>
+                <div style={{
+                    background: "rgba(220, 38, 38, 0.1)",
+                    padding: 10,
+                    borderRadius: 6,
+                    textAlign: "center",
+                    border: "1px solid rgba(220, 38, 38, 0.2)",
+                }}>
+                    <div style={{ fontSize: 18, fontWeight: 700, color: "#dc2626" }}>{stats.criticos || 0}</div>
+                    <div style={{ fontSize: 12 }}>Crítico</div>
+                </div>
 
-            {/* Estatísticas */}
-            <Row className="mb-4">
-                <Col md={3}>
-                    <Card className="text-center border-primary">
-                        <Card.Body>
-                            <h3 className="text-primary">{estatisticas.total || 0}</h3>
-                            <p className="mb-0">Total de Alarmes</p>
-                        </Card.Body>
-                    </Card>
-                </Col>
-                <Col md={3}>
-                    <Card className="text-center border-danger">
-                        <Card.Body>
-                            <h3 className="text-danger">{estatisticas.criticos || 0}</h3>
-                            <p className="mb-0">Críticos</p>
-                        </Card.Body>
-                    </Card>
-                </Col>
-                <Col md={3}>
-                    <Card className="text-center border-warning">
-                        <Card.Body>
-                            <h3 className="text-warning">{estatisticas.altos || 0}</h3>
-                            <p className="mb-0">Alta Prioridade</p>
-                        </Card.Body>
-                    </Card>
-                </Col>
-                <Col md={3}>
-                    <Card className="text-center border-success">
-                        <Card.Body>
-                            <h3 className="text-success">{estatisticas.vistos || 0}</h3>
-                            <p className="mb-0">Vistos</p>
-                        </Card.Body>
-                    </Card>
-                </Col>
-            </Row>
+                <div style={{
+                    background: "rgba(234, 88, 12, 0.1)",
+                    padding: 10,
+                    borderRadius: 6,
+                    textAlign: "center",
+                    border: "1px solid rgba(234, 88, 12, 0.2)",
+                }}>
+                    <div style={{ fontSize: 18, fontWeight: 700, color: "#ea580c" }}>{stats.altos || 0}</div>
+                    <div style={{ fontSize: 12 }}>Alto</div>
+                </div>
 
-            {/* Filtros */}
-            <Card className="mb-4">
-                <Card.Body>
-                    <Row>
-                        <Col md={4}>
-                            <Form.Group>
-                                <Form.Label>Filtrar por Tipo:</Form.Label>
-                                <Form.Select value={filtroTipo} onChange={(e) => setFiltroTipo(e.target.value)}>
-                                    <option value="todos">Todos os Tipos</option>
-                                    <option value="sem_orcamento">Sem Orçamento</option>
-                                    <option value="orcamento_aceito">Orçamento Aceito</option>
-                                    <option value="orcamento_recusado">Orçamento Recusado</option>
-                                </Form.Select>
-                            </Form.Group>
-                        </Col>
-                        <Col md={4}>
-                            <Form.Group>
-                                <Form.Label>Filtrar por Prioridade:</Form.Label>
-                                <Form.Select value={filtroPrioridade} onChange={(e) => setFiltroPrioridade(e.target.value)}>
-                                    <option value="todos">Todas as Prioridades</option>
-                                    <option value="critico">Crítico</option>
-                                    <option value="alto">Alto</option>
-                                    <option value="medio">Médio</option>
-                                    <option value="baixo">Baixo</option>
-                                </Form.Select>
-                            </Form.Group>
-                        </Col>
-                        <Col md={4} className="d-flex align-items-end">
-                            <div className="d-flex gap-2">
-                                <Button variant="outline-success" onClick={() => marcarComoVisto(null, "sem_orcamento")}>
-                                    Marcar Sem Orçamento
-                                </Button>
-                                <Button variant="outline-info" onClick={() => marcarComoVisto(null, "orcamento_aceito")}>
-                                    Marcar Aceitos
-                                </Button>
-                                <Button variant="outline-warning" onClick={() => marcarComoVisto(null, "orcamento_recusado")}>
-                                    Marcar Recusados
-                                </Button>
-                            </div>
-                        </Col>
-                    </Row>
-                </Card.Body>
-            </Card>
+                <div style={{
+                    background: "rgba(202, 138, 4, 0.1)",
+                    padding: 10,
+                    borderRadius: 6,
+                    textAlign: "center",
+                    border: "1px solid rgba(202, 138, 4, 0.2)",
+                }}>
+                    <div style={{ fontSize: 18, fontWeight: 700, color: "#ca8a04" }}>{stats.medios || 0}</div>
+                    <div style={{ fontSize: 12 }}>Médio</div>
+                </div>
+
+                <div style={{
+                    background: "rgba(22, 163, 74, 0.1)",
+                    padding: 10,
+                    borderRadius: 6,
+                    textAlign: "center",
+                    border: "1px solid rgba(22, 163, 74, 0.2)",
+                }}>
+                    <div style={{ fontSize: 18, fontWeight: 700, color: "#16a34a" }}>{stats.total_alarmes || 0}</div>
+                    <div style={{ fontSize: 12 }}>Total</div>
+                </div>
+            </section>
 
             {/* Lista de Alarmes */}
-            {alarmesFiltrados.length === 0 ? (
-                <Alert variant="info" className="text-center">
-                    <i className="bi bi-info-circle me-2"></i>
-                    Nenhum alarme encontrado com os filtros selecionados.
-                </Alert>
-            ) : (
-                <Row>
-                    {alarmesFiltrados.map((alarme) => (
-                        <Col md={6} lg={4} key={alarme.id} className="mb-3">
-                            <Card className={`h-100 ${!alarme.visto ? "border-" + getPrioridadeColor(alarme.prioridade) : ""}`}>
-                                <Card.Header className="d-flex justify-content-between align-items-center">
-                                    <div>
-                                        <i className={`bi ${getTipoIcon(alarme.tipo_alarme)} me-2`}></i>
-                                        {getTipoLabel(alarme.tipo_alarme)}
-                                    </div>
-                                    <Badge bg={getPrioridadeColor(alarme.prioridade)}>{alarme.prioridade.toUpperCase()}</Badge>
-                                </Card.Header>
-                                <Card.Body>
-                                    <h6>Reparação #{alarme.reparacao_id}</h6>
-                                    <p className="text-muted small mb-2">{alarme.mensagem}</p>
-                                    <p className="text-muted small mb-2">
-                                        <i className="bi bi-calendar me-1"></i>
-                                        {new Date(alarme.data_alarme).toLocaleString("pt-PT")}
-                                    </p>
-                                    <p className="text-muted small">
-                                        <i className="bi bi-clock me-1"></i>
-                                        {alarme.dias_decorridos} dias
-                                    </p>
-                                </Card.Body>
-                                <Card.Footer className="d-flex justify-content-between">
-                                    <Button variant="outline-primary" size="sm" onClick={() => verDetalhes(alarme.id)}>
-                                        <i className="bi bi-eye me-1"></i>
-                                        Detalhes
-                                    </Button>
-                                    {!alarme.visto && (
-                                        <Button variant="success" size="sm" onClick={() => marcarComoVisto(alarme.id)}>
-                                            <i className="bi bi-check me-1"></i>
-                                            Marcar Visto
-                                        </Button>
-                                    )}
-                                    {alarme.visto && (
-                                        <Badge bg="success">
-                                            <i className="bi bi-check-circle me-1"></i>
-                                            Visto
-                                        </Badge>
-                                    )}
-                                </Card.Footer>
-                            </Card>
-                        </Col>
-                    ))}
-                </Row>
-            )}
-
-            {/* Modal de Detalhes */}
-            <Modal show={showModal} onHide={() => setShowModal(false)} size="lg">
-                <Modal.Header closeButton>
-                    <Modal.Title>Detalhes do Alarme</Modal.Title>
-                </Modal.Header>
-                <Modal.Body>
-                    {alarmeDetalhes && (
-                        <div>
-                            <Row>
-                                <Col md={6}>
-                                    <strong>Tipo:</strong> {getTipoLabel(alarmeDetalhes.tipo_alarme)}
-                                </Col>
-                                <Col md={6}>
-                                    <strong>Prioridade:</strong>
-                                    <Badge bg={getPrioridadeColor(alarmeDetalhes.prioridade)} className="ms-2">
-                                        {alarmeDetalhes.prioridade.toUpperCase()}
-                                    </Badge>
-                                </Col>
-                            </Row>
-                            <hr />
-                            <Row>
-                                <Col md={6}>
-                                    <strong>Reparação:</strong> #{alarmeDetalhes.reparacao_id}
-                                </Col>
-                                <Col md={6}>
-                                    <strong>Dias Decorridos:</strong> {alarmeDetalhes.dias_decorridos}
-                                </Col>
-                            </Row>
-                            <hr />
-                            <Row>
-                                <Col>
-                                    <strong>Mensagem:</strong>
-                                    <p className="mt-2">{alarmeDetalhes.mensagem}</p>
-                                </Col>
-                            </Row>
-                            <hr />
-                            <Row>
-                                <Col md={6}>
-                                    <strong>Data do Alarme:</strong>
-                                    <br />
-                                    {new Date(alarmeDetalhes.data_alarme).toLocaleString("pt-PT")}
-                                </Col>
-                                <Col md={6}>
-                                    <strong>Status:</strong>
-                                    <br />
-                                    {alarmeDetalhes.visto ? (
-                                        <Badge bg="success">Visto em {new Date(alarmeDetalhes.data_visto).toLocaleString("pt-PT")}</Badge>
-                                    ) : (
-                                        <Badge bg="warning">Não Visto</Badge>
-                                    )}
-                                </Col>
-                            </Row>
-                        </div>
-                    )}
-                </Modal.Body>
-                <Modal.Footer>
-                    <Button variant="secondary" onClick={() => setShowModal(false)}>
-                        Fechar
-                    </Button>
-                    {alarmeDetalhes && !alarmeDetalhes.visto && (
-                        <Button
-                            variant="success"
+            <section style={{ maxHeight: showAllAlarmes ? "400px" : "300px", overflowY: "auto" }}>
+                {alarmesFiltrados.length === 0 ? (
+                    <p style={{ fontSize: 14, textAlign: "center", color: "#64748b", padding: 20 }}>
+                        {filtroAtivo === "todos" ? "✅ Nenhum alarme ativo" : `Nenhum alarme ${filtroAtivo}`}
+                    </p>
+                ) : (
+                    alarmesParaMostrar.map((alarme) => (
+                        <div
+                            key={alarme.id}
                             onClick={() => {
-                                marcarComoVisto(alarmeDetalhes.id)
-                                setShowModal(false)
+                                setSelectedAlarme(alarme)
+                                setShowModal(true)
+                            }}
+                            style={{
+                                background: "#fff",
+                                borderLeft: `4px solid ${getPrioridadeColor(alarme.prioridade)}`,
+                                borderRadius: 6,
+                                padding: 10,
+                                marginBottom: 10,
+                                cursor: "pointer",
+                                transition: "0.2s",
+                                display: "flex",
+                                alignItems: "center",
+                                gap: 10,
+                                boxShadow: "0 1px 2px rgba(0,0,0,0.05)",
+                            }}
+                            onMouseEnter={(e) => {
+                                e.currentTarget.style.background = "#f8fafc"
+                            }}
+                            onMouseLeave={(e) => {
+                                e.currentTarget.style.background = "#fff"
                             }}
                         >
-                            <i className="bi bi-check me-1"></i>
-                            Marcar como Visto
-                        </Button>
-                    )}
-                </Modal.Footer>
-            </Modal>
+                            <span style={{ fontSize: 20 }}>{getTipoEmoji(alarme.tipo_alarme)}</span>
+                            <div style={{ flex: 1 }}>
+                                <div style={{ fontWeight: 600, fontSize: 14 }}>{alarme.nomemaquina}</div>
+                                <div style={{ fontSize: 12, color: "#64748b" }}>
+                                    {alarme.cliente_nome} • {alarme.dias_alerta}d
+                                </div>
+                            </div>
+                            <span style={{
+                                background: getPrioridadeColor(alarme.prioridade),
+                                color: "white",
+                                fontSize: 11,
+                                padding: "2px 8px",
+                                borderRadius: 8,
+                                fontWeight: 600,
+                            }}>
+                                {alarme.prioridade}
+                            </span>
+                        </div>
+                    ))
+                )}
+            </section>
 
-            {/* Toast de Notificação */}
-            <ToastContainer position="top-end" className="p-3">
-                <Toast show={showToast} onClose={() => setShowToast(false)} delay={3000} autohide>
-                    <Toast.Header>
-                        <i className="bi bi-check-circle-fill text-success me-2"></i>
-                        <strong className="me-auto">Sucesso</strong>
-                    </Toast.Header>
-                    <Toast.Body>{toastMessage}</Toast.Body>
-                </Toast>
-            </ToastContainer>
+            {/* Controles de Visualização */}
+            {alarmesFiltrados.length > 5 && (
+                <div style={{ textAlign: "center", marginTop: 10 }}>
+                    <button
+                        onClick={() => setShowAllAlarmes(!showAllAlarmes)}
+                        style={{
+                            background: "#e0f2fe",
+                            border: "1px solid #bae6fd",
+                            color: "#0369a1",
+                            padding: "6px 12px",
+                            borderRadius: 6,
+                            fontSize: 12,
+                            cursor: "pointer",
+                            transition: "all 0.2s",
+                        }}
+                        onMouseEnter={(e) => {
+                            e.currentTarget.style.background = "#bae6fd"
+                        }}
+                        onMouseLeave={(e) => {
+                            e.currentTarget.style.background = "#e0f2fe"
+                        }}
+                    >
+                        {showAllAlarmes ? (
+                            <>
+                                <span style={{ marginRight: 4 }}>▲</span>
+                                Mostrar menos
+                            </>
+                        ) : (
+                            <>
+                                <span style={{ marginRight: 4 }}>▼</span>
+                                Ver todos ({alarmesFiltrados.length})
+                            </>
+                        )}
+                    </button>
+                </div>
+            )}
+
+            {/* Footer com informações adicionais */}
+            <div style={{
+                textAlign: "center",
+                marginTop: 16,
+                fontSize: 12,
+                color: "#94a3b8",
+                borderTop: "1px solid #e2e8f0",
+                paddingTop: 10,
+            }}>
+                Atualizado: {new Date().toLocaleTimeString("pt-PT", { hour: "2-digit", minute: "2-digit" })}
+            </div>
+
+            {/* Modal de Detalhes */}
+            {showModal && selectedAlarme && (
+                <div style={{
+                    position: "fixed",
+                    top: 0, left: 0, right: 0, bottom: 0,
+                    background: "rgba(0,0,0,0.5)",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    zIndex: 1000,
+                }}>
+                    <div style={{
+                        background: "white",
+                        borderRadius: 10,
+                        padding: 20,
+                        maxWidth: 500,
+                        width: "90%",
+                        maxHeight: "80vh",
+                        overflow: "auto",
+                    }}>
+                        <div style={{
+                            display: "flex",
+                            justifyContent: "space-between",
+                            alignItems: "center",
+                            marginBottom: 16,
+                        }}>
+                            <h3 style={{
+                                margin: 0,
+                                fontSize: 18,
+                                color: "#1f2937",
+                                display: "flex",
+                                alignItems: "center",
+                                gap: 8,
+                            }}>
+                                🚨 Detalhes do Alarme
+                                <span style={{
+                                    background: getPrioridadeColor(selectedAlarme.prioridade),
+                                    color: "white",
+                                    padding: "2px 8px",
+                                    borderRadius: 12,
+                                    fontSize: 12,
+                                    fontWeight: "600",
+                                }}>
+                                    {selectedAlarme.prioridade}
+                                </span>
+                            </h3>
+                            <button
+                                onClick={() => setShowModal(false)}
+                                style={{
+                                    background: "none",
+                                    border: "none",
+                                    fontSize: 18,
+                                    cursor: "pointer",
+                                    padding: 4,
+                                    color: "#6b7280",
+                                }}
+                            >
+                                ✕
+                            </button>
+                        </div>
+
+                        <div style={{ marginBottom: 16 }}>
+                            {/* Informações principais */}
+                            <div style={{
+                                background: "#f8fafc",
+                                padding: 12,
+                                borderRadius: 6,
+                                marginBottom: 12,
+                                border: `2px solid ${getPrioridadeColor(selectedAlarme.prioridade)}20`,
+                            }}>
+                                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, fontSize: 14 }}>
+                                    <div>
+                                        <strong>Equipamento:</strong>
+                                        <div>{selectedAlarme.nomemaquina}</div>
+                                    </div>
+                                    <div>
+                                        <strong>Cliente:</strong>
+                                        <div>{selectedAlarme.cliente_nome}</div>
+                                    </div>
+                                    <div>
+                                        <strong>Tipo de Alarme:</strong>
+                                        <div>
+                                            {getTipoEmoji(selectedAlarme.tipo_alarme)} {getTipoLabel(selectedAlarme.tipo_alarme)}
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <strong>Dias em atraso:</strong>
+                                        <div style={{ color: getPrioridadeColor(selectedAlarme.prioridade), fontWeight: "bold" }}>
+                                            {selectedAlarme.dias_alerta} dias
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <strong>Data de Entrada:</strong>
+                                        <div>{new Date(selectedAlarme.dataentrega).toLocaleDateString("pt-PT")}</div>
+                                    </div>
+                                    <div>
+                                        <strong>Estado:</strong>
+                                        <div>{selectedAlarme.estadoreparacao || "Em análise"}</div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Informações adicionais */}
+                            {(selectedAlarme.numreparacao || selectedAlarme.estadoorcamento) && (
+                                <div style={{
+                                    background: "#f0f9ff",
+                                    padding: 12,
+                                    borderRadius: 6,
+                                    marginBottom: 12,
+                                    fontSize: 14,
+                                }}>
+                                    {selectedAlarme.numreparacao && (
+                                        <div style={{ marginBottom: 4 }}>
+                                            <strong>Nº Reparação:</strong> {selectedAlarme.numreparacao}
+                                        </div>
+                                    )}
+                                    {selectedAlarme.estadoorcamento && (
+                                        <div>
+                                            <strong>Estado Orçamento:</strong> {selectedAlarme.estadoorcamento}
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+
+                            {/* Descrição */}
+                            {selectedAlarme.descricao && (
+                                <div style={{
+                                    background: "#fefce8",
+                                    padding: 12,
+                                    borderRadius: 6,
+                                    marginBottom: 12,
+                                    fontSize: 14,
+                                }}>
+                                    <strong>Descrição:</strong>
+                                    <div style={{ marginTop: 4, lineHeight: 1.4 }}>{selectedAlarme.descricao}</div>
+                                </div>
+                            )}
+
+                            {/* Contato do cliente */}
+                            {(selectedAlarme.cliente_telefone || selectedAlarme.cliente_email) && (
+                                <div style={{
+                                    background: "#f0fdf4",
+                                    padding: 12,
+                                    borderRadius: 6,
+                                    marginBottom: 12,
+                                    fontSize: 14,
+                                }}>
+                                    <strong>Contato do Cliente:</strong>
+                                    {selectedAlarme.cliente_telefone && (
+                                        <div style={{ marginTop: 4 }}>📞 {selectedAlarme.cliente_telefone}</div>
+                                    )}
+                                    {selectedAlarme.cliente_email && (
+                                        <div style={{ marginTop: 4 }}>✉️ {selectedAlarme.cliente_email}</div>
+                                    )}
+                                </div>
+                            )}
+                        </div>
+
+                        <div style={{
+                            display: "flex",
+                            gap: 10,
+                            justifyContent: "flex-end",
+                        }}>
+                            <button
+                                onClick={() => setShowModal(false)}
+                                style={{
+                                    padding: "8px 16px",
+                                    border: "1px solid #d1d5db",
+                                    background: "white",
+                                    borderRadius: 6,
+                                    cursor: "pointer",
+                                    fontSize: 14,
+                                }}
+                            >
+                                Fechar
+                            </button>
+                            {!selectedAlarme.visto && (
+                                <button
+                                    onClick={() => marcarComoVisto(selectedAlarme.id, selectedAlarme.tipo_alarme)}
+                                    style={{
+                                        padding: "8px 16px",
+                                        border: "none",
+                                        background: "#10b981",
+                                        color: "white",
+                                        borderRadius: 6,
+                                        cursor: "pointer",
+                                        fontSize: 14,
+                                    }}
+                                >
+                                    ✅ Marcar como Visto
+                                </button>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     )
 }

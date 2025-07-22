@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect, useCallback, useMemo } from "react"
+import ReactModal from 'react-modal';
 import axios from "axios"
 import { useNavigate } from "react-router-dom"
 import ClienteForm from "../components/ClienteForm"
@@ -29,23 +30,36 @@ function ReparacoesRegisto() {
     const [loading, setLoading] = useState(false)
     const [loadingData, setLoadingData] = useState(true)
     const [showClienteForm, setShowClienteForm] = useState(false)
+    const [pecaEditavel, setPecaEditavel] = useState(null);
     const [clienteSelecionado, setClienteSelecionado] = useState("")
     const [pecasNecessarias, setPecasNecessarias] = useState([])
-    const [novaPeca, setNovaPeca] = useState({
+    const novaPecaInicial = {
         tipopeca: "",
         marca: "",
         quantidade: 1,
         preco_unitario: 0,
+        preco_com_desconto: 0,
+        desconto_unitario: 0,
+        desconto_percentual: 0,
+        tipo_desconto: "nenhum",
         observacao: "",
-    })
+    };
+
+    const [novaPeca, setNovaPeca] = useState(novaPecaInicial);
     const [pecasExistentes, setPecasExistentes] = useState([])
     const [mostrarPecas, setMostrarPecas] = useState(false)
     const [valorMaoObra, setValorMaoObra] = useState(0)
-
-    // NOVOS ESTADOS APENAS PARA A PESQUISA DE CLIENTES
     const [buscaCliente, setBuscaCliente] = useState("")
     const [mostrarResultados, setMostrarResultados] = useState(false)
     const [clientesFiltrados, setClientesFiltrados] = useState([])
+
+    const [showModalDesconto, setShowModalDesconto] = useState(false);
+    const [pecaSelecionada, setPecaSelecionada] = useState(null);
+    const [descontoAtual, setDescontoAtual] = useState({
+        tipo: 'nenhum',
+        valor: 0,
+        percentual: 0
+    });
 
     const navigate = useNavigate()
 
@@ -71,6 +85,7 @@ function ReparacoesRegisto() {
 
     useEffect(() => {
         carregarDados()
+        ReactModal.setAppElement('#root');
     }, [carregarDados])
 
     useEffect(() => {
@@ -86,7 +101,62 @@ function ReparacoesRegisto() {
         setForm((prev) => ({ ...prev, [e.target.name]: e.target.value }))
     }, [])
 
-    // NOVA FUNÇÃO PARA BUSCA DE CLIENTES
+    // Corrigir cálculo do total da peça
+    const calcularTotalPeca = (peca) => {
+        if (!peca || !peca.preco_unitario || !peca.quantidade) return 0;
+        return calcularPrecoComDesconto(peca) * peca.quantidade;
+    };
+
+    const iniciarEdicaoPeca = (peca) => {
+        setPecaEditavel(peca);
+        setNovaPeca({
+            tipopeca: peca.tipopeca,
+            marca: peca.marca,
+            quantidade: peca.quantidade,
+            preco_unitario: peca.preco_unitario,
+            preco_com_desconto: peca.preco_com_desconto,
+            desconto_unitario: peca.desconto_unitario || 0,
+            desconto_percentual: peca.desconto_percentual || 0,
+            tipo_desconto: peca.tipo_desconto || "nenhum",
+            observacao: peca.observacao || ""
+        });
+    };
+
+    const cancelarEdicao = () => {
+        setPecaEditavel(null);
+        setNovaPeca(novaPecaInicial);
+    };
+
+    const atualizarPeca = () => {
+        if (!novaPeca.tipopeca.trim() || !novaPeca.marca.trim()) {
+            setErro("Tipo de peça e marca são obrigatórios.");
+            return;
+        }
+
+        const precoFinal = calcularPrecoComDesconto(novaPeca);
+
+        setPecasNecessarias(prev =>
+            prev.map(peca =>
+                peca.id === pecaEditavel.id
+                    ? {
+                        ...peca,
+                        tipopeca: novaPeca.tipopeca,
+                        marca: novaPeca.marca,
+                        quantidade: novaPeca.quantidade,
+                        preco_unitario: novaPeca.preco_unitario,
+                        preco_com_desconto: precoFinal,
+                        desconto_unitario: novaPeca.desconto_unitario,
+                        desconto_percentual: novaPeca.desconto_percentual,
+                        tipo_desconto: novaPeca.tipo_desconto,
+                        observacao: novaPeca.observacao
+                    }
+                    : peca
+            )
+        );
+
+        cancelarEdicao();
+    };
+
     const handleBuscaClienteChange = useCallback(
         (e) => {
             const valor = e.target.value
@@ -108,16 +178,14 @@ function ReparacoesRegisto() {
         [clientes],
     )
 
-    // NOVA FUNÇÃO PARA SELECIONAR CLIENTE DA BUSCA
-    const selecionarClienteDaBusca = useCallback((cliente) => {
+    const selecionarCliente = useCallback((cliente) => {
         setClienteSelecionado(cliente.id)
         setBuscaCliente(`${cliente.nome} ${cliente.numero_interno ? `(${cliente.numero_interno})` : ""}`)
         setMostrarResultados(false)
-        setForm((prev) => ({
-            ...prev,
-            cliente_id: cliente.id,
-        }))
+        setForm((prev) => ({ ...prev, cliente_id: String(cliente.id) }))
     }, [])
+
+
 
     const handleClienteChange = useCallback(
         (e) => {
@@ -128,7 +196,6 @@ function ReparacoesRegisto() {
                 cliente_id: clienteId,
             }))
 
-            // Atualizar campo de busca quando selecionado pelo dropdown
             if (clienteId) {
                 const cliente = clientes.find((c) => String(c.id) === String(clienteId))
                 if (cliente) {
@@ -145,26 +212,39 @@ function ReparacoesRegisto() {
         setShowClienteForm(true)
     }, [])
 
-    const handleClienteSalvo = useCallback(() => {
-        setShowClienteForm(false)
-        axios
-            .get("http://localhost:8082/clientes")
-            .then((response) => {
-                setClientes(response.data)
-                if (response.data.length > 0) {
-                    const ultimoCliente = response.data[response.data.length - 1]
-                    setClienteSelecionado(ultimoCliente.id)
-                    setBuscaCliente(
-                        `${ultimoCliente.nome} ${ultimoCliente.numero_interno ? `(${ultimoCliente.numero_interno})` : ""}`,
-                    )
-                    setForm((prev) => ({
-                        ...prev,
-                        cliente_id: ultimoCliente.id,
-                    }))
-                }
-            })
-            .catch(() => console.error("Erro ao recarregar clientes"))
-    }, [])
+    const handleClienteSalvo = async (clienteId) => {
+        setShowClienteForm(false);
+
+        // Recarregar lista de clientes
+        try {
+            const response = await axios.get("http://localhost:8082/clientes");
+            const novosClientes = Array.isArray(response.data) ? response.data : [];
+            setClientes(novosClientes);
+
+            // Selecionar o cliente recém-criado ou o selecionado anteriormente
+            let clienteParaSelecionar = null;
+
+            if (clienteId) {
+                clienteParaSelecionar = novosClientes.find((c) => String(c.id) === String(clienteId));
+            } else if (clienteSelecionado) {
+                // Se não temos um novo ID, mantemos o selecionado anteriormente
+                clienteParaSelecionar = novosClientes.find((c) => String(c.id) === String(clienteSelecionado));
+            }
+
+            if (clienteParaSelecionar) {
+                console.log("Cliente encontrado:", clienteParaSelecionar);
+                selecionarCliente(clienteParaSelecionar);
+            } else if (novosClientes.length > 0) {
+                // Fallback: selecionar o cliente mais recente se não encontrarmos o específico
+                const clienteMaisRecente = [...novosClientes].sort((a, b) => b.id - a.id)[0];
+                console.log("Selecionando cliente mais recente:", clienteMaisRecente);
+                selecionarCliente(clienteMaisRecente);
+            }
+        } catch (error) {
+            console.error("Erro ao recarregar clientes:", error);
+            setErro("Erro ao recarregar lista de clientes");
+        }
+    };
 
     const handleCentroChange = useCallback(
         (e) => {
@@ -202,19 +282,72 @@ function ReparacoesRegisto() {
         [reparacoes],
     )
 
-    // Peças
-    const handleNovaPecaChange = useCallback((e) => {
-        const { name, value } = e.target
-        setNovaPeca((prev) => ({
-            ...prev,
-            [name]:
-                name === "quantidade"
-                    ? Number.parseInt(value) || 1
-                    : name === "preco_unitario"
-                        ? Number.parseFloat(value) || 0
-                        : value,
-        }))
-    }, [])
+    const abrirModalDesconto = (pecaId) => {
+        const peca = pecasNecessarias.find(p => p.id === pecaId);
+        setPecaSelecionada(peca);
+
+        // Preencher com os descontos existentes se houver
+        setDescontoAtual({
+            tipo: peca.tipo_desconto || 'nenhum',
+            valor: peca.desconto_unitario || 0,
+            percentual: peca.desconto_percentual || 0
+        });
+
+        setShowModalDesconto(true);
+    };
+
+    const fecharModalDesconto = () => {
+        setShowModalDesconto(false);
+        setPecaSelecionada(null);
+    };
+
+    const calcularPrecoComDesconto = useCallback((peca) => {
+        if (!peca) return 0;
+        let preco = Number(peca.preco_unitario) || 0;
+        if (peca.tipo_desconto === "valor" && peca.desconto_unitario > 0) {
+            preco = Math.max(0, preco - Number(peca.desconto_unitario));
+        } else if (peca.tipo_desconto === "percentual" && peca.desconto_percentual > 0) {
+            preco = preco * (1 - Number(peca.desconto_percentual) / 100);
+        }
+        return preco;
+    }, []);
+
+    const aplicarDesconto = () => {
+        const pecasAtualizadas = pecasNecessarias.map(peca => {
+            if (peca.id === pecaSelecionada.id) {
+                return {
+                    ...peca,
+                    tipo_desconto: descontoAtual.tipo === 'nenhum' ? null : descontoAtual.tipo,
+                    desconto_unitario: descontoAtual.tipo === 'valor' ? descontoAtual.valor : null,
+                    desconto_percentual: descontoAtual.tipo === 'percentual' ? descontoAtual.percentual : null,
+                    preco_com_desconto: calcularPrecoComDesconto()
+                };
+            }
+            return peca;
+        });
+
+        setPecasNecessarias(pecasAtualizadas);
+        fecharModalDesconto();
+    };
+
+
+
+
+    const handleNovaPecaChange = (e) => {
+        const { name, value } = e.target;
+        setNovaPeca(prev => {
+            let val = value;
+            if (["preco_unitario", "desconto_unitario", "desconto_percentual", "quantidade"].includes(name)) {
+                val = Number(val) || 0;
+            }
+            const updated = { ...prev, [name]: val };
+            if (name === "tipo_desconto") {
+                updated.desconto_unitario = 0;
+                updated.desconto_percentual = 0;
+            }
+            return updated;
+        });
+    };
 
     const verificarPecaExistente = useCallback(
         (tipopeca, marca) =>
@@ -231,6 +364,14 @@ function ReparacoesRegisto() {
             setErro("Tipo de peça e marca são obrigatórios.")
             return
         }
+        if (novaPeca.tipo_desconto === "percentual" && (novaPeca.desconto_percentual < 0 || novaPeca.desconto_percentual > 100)) {
+            setErro("O desconto percentual deve estar entre 0% e 100%.")
+            return
+        }
+        if (novaPeca.preco_unitario < 0) {
+            setErro("O preço unitário não pode ser negativo.")
+            return
+        }
         const pecaJaAdicionada = pecasNecessarias.find(
             (peca) =>
                 peca.tipopeca.toLowerCase().trim() === novaPeca.tipopeca.toLowerCase().trim() &&
@@ -240,17 +381,20 @@ function ReparacoesRegisto() {
             setErro("Esta peça já foi adicionada à lista.")
             return
         }
+        const precoFinal = calcularPrecoComDesconto(novaPeca);
         const pecaExistente = verificarPecaExistente(novaPeca.tipopeca, novaPeca.marca)
         const novaPecaCompleta = {
             ...novaPeca,
             id: Date.now(),
+            ordem: pecasNecessarias.length, // Adiciona um índice de ordem
+            preco_com_desconto: precoFinal,
             existeNoSistema: !!pecaExistente,
-            pecaExistente: pecaExistente || null,
-        }
-        setPecasNecessarias((prev) => [...prev, novaPecaCompleta])
-        setNovaPeca({ tipopeca: "", marca: "", quantidade: 1, preco_unitario: 0, observacao: "" })
-        setErro("")
-    }, [novaPeca, pecasNecessarias, verificarPecaExistente])
+            pecaExistente: pecaExistente || null
+        };
+        setPecasNecessarias((prev) => [...prev, novaPecaCompleta]);
+        setNovaPeca(novaPecaInicial);
+        setErro("");
+    }, [novaPeca, pecasNecessarias, verificarPecaExistente, calcularPrecoComDesconto, novaPecaInicial]);
 
     const removerPeca = useCallback((id) => {
         setPecasNecessarias((prev) => prev.filter((peca) => peca.id !== id))
@@ -267,17 +411,20 @@ function ReparacoesRegisto() {
     )
 
     const calcularTotais = useCallback(() => {
-        const totalPecas = pecasNecessarias.reduce((total, peca) => {
-            return total + peca.preco_unitario * peca.quantidade
-        }, 0)
-
-        const totalGeral = totalPecas + valorMaoObra
-
+        let totalPecas = 0, totalDescontos = 0;
+        pecasNecessarias.forEach(peca => {
+            const precoDesc = calcularPrecoComDesconto(peca);
+            totalPecas += precoDesc * peca.quantidade;
+            totalDescontos += (peca.preco_unitario - precoDesc) * peca.quantidade;
+        });
+        const totalGeral = totalPecas + valorMaoObra;
         return {
             totalPecas: totalPecas.toFixed(2),
             totalGeral: totalGeral.toFixed(2),
-        }
-    }, [pecasNecessarias, valorMaoObra])
+            totalDescontos: totalDescontos.toFixed(2),
+            totalSemDescontos: (totalPecas + totalDescontos).toFixed(2)
+        };
+    }, [pecasNecessarias, valorMaoObra, calcularPrecoComDesconto]);
 
     const pecasSimilares = useMemo(
         () => buscarPecasSimilares(novaPeca.tipopeca),
@@ -322,6 +469,7 @@ function ReparacoesRegisto() {
                 mao_obra: valorMaoObra.toFixed(2),
                 totalPecas: totais.totalPecas,
                 totalGeral: totais.totalGeral,
+                totalDescontos: totais.totalDescontos,
                 pecasNecessarias: mostrarPecas ? pecasNecessarias : [],
             }
 
@@ -377,7 +525,7 @@ function ReparacoesRegisto() {
                         <div className="row">
                             {/* Coluna da esquerda */}
                             <div className="col-md-6">
-                                {/* Seção do Cliente - MANTIDA ORIGINAL + PESQUISA */}
+                                {/* Seção do Cliente */}
                                 <div className="card mb-3">
                                     <div className="card-header bg-light">
                                         <h5 className="mb-0">
@@ -388,7 +536,6 @@ function ReparacoesRegisto() {
                                     <div className="card-body">
                                         {!showClienteForm ? (
                                             <>
-                                                {/* NOVA FUNCIONALIDADE: Campo de Pesquisa */}
                                                 <div className="mb-3">
                                                     <label className="form-label">
                                                         <i className="bi bi-search me-1"></i>
@@ -412,7 +559,7 @@ function ReparacoesRegisto() {
                                                                     <div
                                                                         key={cliente.id}
                                                                         className="p-2 border-bottom cursor-pointer hover-bg-light"
-                                                                        onClick={() => selecionarClienteDaBusca(cliente)}
+                                                                        onClick={() => selecionarCliente(cliente)}
                                                                         style={{ cursor: "pointer" }}
                                                                         onMouseEnter={(e) => (e.target.style.backgroundColor = "#f8f9fa")}
                                                                         onMouseLeave={(e) => (e.target.style.backgroundColor = "white")}
@@ -443,7 +590,6 @@ function ReparacoesRegisto() {
                                                     </div>
                                                 </div>
 
-                                                {/* FORMULÁRIO ORIGINAL MANTIDO */}
                                                 <div className="mb-3">
                                                     <label className="form-label">
                                                         <i className="bi bi-person-fill me-1"></i>
@@ -455,7 +601,7 @@ function ReparacoesRegisto() {
                                                             value={clienteSelecionado}
                                                             onChange={handleClienteChange}
                                                             required
-                                                            style={{ maxHeight: "50px", overflowY: "auto" }} // <-- aqui!
+                                                            style={{ maxHeight: "50px", overflowY: "auto" }}
                                                         >
                                                             <option value="">Selecione um cliente</option>
                                                             {clientes.map((cliente) => (
@@ -698,13 +844,19 @@ function ReparacoesRegisto() {
                                                     Resumo Financeiro
                                                 </h6>
                                                 <div className="row text-center">
-                                                    <div className="col-6">
-                                                        <div className="border-end">
-                                                            <h5 className="text-primary mb-0">€{totais.totalPecas}</h5>
-                                                            <small className="text-muted">Total Peças</small>
-                                                        </div>
+                                                    <div className="col-md-3 border-end">
+                                                        <h5 className="text-primary mb-0">€{totais.totalSemDescontos}</h5>
+                                                        <small className="text-muted">Total Sem Descontos</small>
                                                     </div>
-                                                    <div className="col-6">
+                                                    <div className="col-md-3 border-end">
+                                                        <h5 className="text-danger mb-0">-€{totais.totalDescontos}</h5>
+                                                        <small className="text-muted">Total Descontos</small>
+                                                    </div>
+                                                    <div className="col-md-3 border-end">
+                                                        <h5 className="text-primary mb-0">€{totais.totalPecas}</h5>
+                                                        <small className="text-muted">Total Peças</small>
+                                                    </div>
+                                                    <div className="col-md-3">
                                                         <h5 className="text-success mb-0">€{totais.totalGeral}</h5>
                                                         <small className="text-muted">Total Geral</small>
                                                     </div>
@@ -740,7 +892,7 @@ function ReparacoesRegisto() {
                                             <i className="bi bi-wrench-adjustable-circle me-2"></i>
                                             Peças Necessárias para Reparação
                                         </h5>
-                                        <span className="badge bg-light text-success">Orçamento Aceito</span>
+                                        <span className="badge bg-light text-success">Orçamento Aceite</span>
                                     </div>
                                     <div className="card-body">
                                         {/* Adicionar Nova Peça */}
@@ -753,6 +905,7 @@ function ReparacoesRegisto() {
                                             </div>
                                             <div className="card-body">
                                                 <div className="row g-3">
+                                                    {/* Tipo de Peça */}
                                                     <div className="col-md-3">
                                                         <label className="form-label">Tipo de Peça</label>
                                                         <input
@@ -772,19 +925,23 @@ function ReparacoesRegisto() {
                                                             </datalist>
                                                         )}
                                                     </div>
-                                                    <div className="col-md-3">
-                                                        <label className="form-label">Descrição Interna</label>
+
+                                                    {/* Descrição/Marca */}
+                                                    <div className="col-md-2">
+                                                        <label className="form-label">Ref.Interna</label>
                                                         <input
                                                             type="text"
                                                             className="form-control"
                                                             name="marca"
                                                             value={novaPeca.marca}
                                                             onChange={handleNovaPecaChange}
-                                                            placeholder="Ex: Bosch, Mann, Donaldson..."
+                                                            placeholder="Ex: Bosch, Mann..."
                                                         />
                                                     </div>
-                                                    <div className="col-md-2">
-                                                        <label className="form-label">Quantidade</label>
+
+                                                    {/* Quantidade */}
+                                                    <div className="col-md-1">
+                                                        <label className="form-label">Qtd</label>
                                                         <input
                                                             type="number"
                                                             className="form-control"
@@ -794,6 +951,8 @@ function ReparacoesRegisto() {
                                                             min="1"
                                                         />
                                                     </div>
+
+                                                    {/* Preço Unitário */}
                                                     <div className="col-md-2">
                                                         <label className="form-label">Preço Unit. (€)</label>
                                                         <input
@@ -807,15 +966,48 @@ function ReparacoesRegisto() {
                                                             placeholder="0.00"
                                                         />
                                                     </div>
+
+                                                    {/* Tipo de Desconto */}
                                                     <div className="col-md-2">
-                                                        <label className="form-label">&nbsp;</label>
-                                                        <button type="button" className="btn btn-primary w-100" onClick={adicionarPeca}>
-                                                            <i className="bi bi-plus-lg"></i>
-                                                        </button>
+                                                        <label className="form-label">Tipo Desconto</label>
+                                                        <select
+                                                            className="form-select"
+                                                            name="tipo_desconto"
+                                                            value={novaPeca.tipo_desconto || 'nenhum'}
+                                                            onChange={handleNovaPecaChange}
+                                                        >
+                                                            <option value="nenhum">Sem desconto</option>
+                                                            <option value="percentual">Percentual (%)</option>
+                                                        </select>
+                                                    </div>
+
+                                                    {/* Valor do Desconto */}
+                                                    <div className="col-md-2">
+                                                        <label className="form-label">
+                                                            {novaPeca.tipo_desconto === 'percentual' ? 'Desconto (%)' : 'Desconto (€)'}
+                                                        </label>
+                                                        <input
+                                                            type="number"
+                                                            className="form-control"
+                                                            name={novaPeca.tipo_desconto === 'percentual' ? 'desconto_percentual' : 'desconto_unitario'}
+                                                            value={
+                                                                novaPeca.tipo_desconto === 'percentual'
+                                                                    ? (novaPeca.desconto_percentual || '')
+                                                                    : (novaPeca.desconto_unitario || '')
+                                                            }
+                                                            onChange={handleNovaPecaChange}
+                                                            min="0"
+                                                            step={novaPeca.tipo_desconto === 'percentual' ? '1' : '0.01'}
+                                                            max={novaPeca.tipo_desconto === 'percentual' ? '100' : ''}
+                                                            disabled={novaPeca.tipo_desconto === 'nenhum'}
+                                                        />
                                                     </div>
                                                 </div>
+
+                                                {/* Segunda Linha - Observações e Botão */}
                                                 <div className="row g-3 mt-2">
-                                                    <div className="col-12">
+                                                    {/* Observações */}
+                                                    <div className="col-md-10">
                                                         <label className="form-label">Observações</label>
                                                         <input
                                                             type="text"
@@ -826,7 +1018,72 @@ function ReparacoesRegisto() {
                                                             placeholder="Observações sobre a peça (opcional)"
                                                         />
                                                     </div>
+
+                                                    {/* Botão Melhorado */}
+                                                    <div className="col-md-2 d-flex align-items-end">
+                                                        <div className="w-100">
+                                                            <label className="form-label invisible">Ação</label>
+                                                            {pecaEditavel ? (
+                                                                <div className="btn-group w-100">
+                                                                    <button
+                                                                        type="button"
+                                                                        className="btn btn-success w-50"
+                                                                        onClick={atualizarPeca}
+                                                                        disabled={!novaPeca.tipopeca.trim() || !novaPeca.marca.trim() || loading}
+                                                                        title="Salvar edição"
+                                                                    >
+                                                                        <i className="bi bi-check-lg"></i>
+                                                                    </button>
+                                                                    <button
+                                                                        type="button"
+                                                                        className="btn btn-danger w-50"
+                                                                        onClick={cancelarEdicao}
+                                                                        title="Cancelar edição"
+                                                                    >
+                                                                        <i className="bi bi-x-lg"></i>
+                                                                    </button>
+                                                                </div>
+                                                            ) : (
+                                                                <button
+                                                                    type="button"
+                                                                    className="btn btn-primary w-100 btn-adicionar-peca"
+                                                                    onClick={adicionarPeca}
+                                                                    disabled={!novaPeca.tipopeca.trim() || !novaPeca.marca.trim() || loading}
+                                                                    title="Adicionar peça à lista"
+                                                                >
+                                                                    {loading ? (
+                                                                        <>
+                                                                            <span className="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>
+                                                                            <span className="d-none d-md-inline">Adicionando...</span>
+                                                                        </>
+                                                                    ) : (
+                                                                        <>
+                                                                            <i className="bi bi-plus-lg me-1"></i>
+                                                                            <span className="d-none d-md-inline">Adicionar</span>
+                                                                        </>
+                                                                    )}
+                                                                </button>
+                                                            )}
+                                                        </div>
+                                                    </div>
                                                 </div>
+                                                {/* Pré-visualização do Cálculo */}
+                                                {novaPeca.preco_unitario > 0 && (
+                                                    <div className="alert alert-info mt-3 mb-0">
+                                                        <div className="d-flex justify-content-between">
+                                                            <span>Subtotal: €{(novaPeca.preco_unitario * novaPeca.quantidade).toFixed(2)}</span>
+                                                            {novaPeca.tipo_desconto !== 'nenhum' && (
+                                                                <span>
+                                                                    Desconto:
+                                                                    {novaPeca.tipo_desconto === 'percentual' && ` ${novaPeca.desconto_percentual || 0}%`}
+                                                                </span>
+                                                            )}
+                                                            <strong>
+                                                                Total: €{calcularTotalPeca(novaPeca).toFixed(2)}
+                                                            </strong>
+                                                        </div>
+                                                    </div>
+                                                )}
                                             </div>
                                         </div>
 
@@ -848,66 +1105,176 @@ function ReparacoesRegisto() {
                                                                     <th>Marca</th>
                                                                     <th>Qtd</th>
                                                                     <th>Preço Unit.</th>
+                                                                    <th>Desconto</th>
+                                                                    <th>Preço c/ Desc.</th>
                                                                     <th>Total</th>
                                                                     <th>Status</th>
                                                                     <th>Ações</th>
                                                                 </tr>
                                                             </thead>
                                                             <tbody>
-                                                                {pecasNecessarias.map((peca) => (
-                                                                    <tr key={peca.id}>
-                                                                        <td>
-                                                                            <strong>{peca.tipopeca}</strong>
-                                                                            {peca.observacao && (
-                                                                                <div>
-                                                                                    <small className="text-muted">{peca.observacao}</small>
-                                                                                </div>
-                                                                            )}
-                                                                        </td>
-                                                                        <td>{peca.marca}</td>
-                                                                        <td>
-                                                                            <span className="badge bg-info">{peca.quantidade}</span>
-                                                                        </td>
-                                                                        <td>€{peca.preco_unitario.toFixed(2)}</td>
-                                                                        <td>
-                                                                            <strong>€{(peca.preco_unitario * peca.quantidade).toFixed(2)}</strong>
-                                                                        </td>
-                                                                        <td>
-                                                                            {peca.existeNoSistema ? (
-                                                                                <div>
-                                                                                    <span className="badge bg-success">
-                                                                                        <i className="bi bi-check-circle me-1"></i>
-                                                                                        Existe no Sistema
+                                                                {pecasNecessarias
+                                                                    .sort((a, b) => a.id - b.id) // Mantém a ordem de inserção (IDs mais antigos primeiro)
+                                                                    .map((peca) => {
+                                                                        const precoComDesconto = peca.preco_com_desconto || peca.preco_unitario;
+                                                                        const totalItem = precoComDesconto * peca.quantidade;
+
+                                                                        return (
+                                                                            <tr key={peca.id}>
+                                                                                <td>
+                                                                                    <strong>{peca.tipopeca}</strong>
+                                                                                    {peca.observacao && (
+                                                                                        <div>
+                                                                                            <small className="text-muted">{peca.observacao}</small>
+                                                                                        </div>
+                                                                                    )}
+                                                                                </td>
+                                                                                <td>{peca.marca}</td>
+                                                                                <td>
+                                                                                    <span className="badge bg-info">{peca.quantidade}</span>
+                                                                                </td>
+                                                                                <td>€{peca.preco_unitario.toFixed(2)}</td>
+                                                                                <td>
+                                                                                    <button
+                                                                                        className="btn btn-sm btn-outline-primary"
+                                                                                        onClick={() => abrirModalDesconto(peca.id)}
+                                                                                    >
+                                                                                        {peca.tipo_desconto === 'valor' && peca.desconto_unitario > 0 ? (
+                                                                                            <>-€{peca.desconto_unitario.toFixed(2)}</>
+                                                                                        ) : peca.tipo_desconto === 'percentual' && peca.desconto_percentual > 0 ? (
+                                                                                            <>-{peca.desconto_percentual}%</>
+                                                                                        ) : (
+                                                                                            <i className="bi bi-percent"></i>
+                                                                                        )}
+                                                                                    </button>
+                                                                                </td>
+                                                                                <td>
+                                                                                    <span className="fw-bold">
+                                                                                        €{precoComDesconto.toFixed(2)}
                                                                                     </span>
-                                                                                    <br />
-                                                                                    <small className="text-muted">
-                                                                                        Máquina: {peca.pecaExistente.maquina_tipo} -{" "}
-                                                                                        {peca.pecaExistente.maquina_marca}
-                                                                                    </small>
-                                                                                </div>
-                                                                            ) : (
-                                                                                <span className="badge bg-warning">
-                                                                                    <i className="bi bi-exclamation-circle me-1"></i>
-                                                                                    Não Encontrada
-                                                                                </span>
-                                                                            )}
-                                                                        </td>
-                                                                        <td>
-                                                                            <button
-                                                                                type="button"
-                                                                                className="btn btn-outline-danger btn-sm"
-                                                                                onClick={() => removerPeca(peca.id)}
-                                                                                title="Remover peça"
-                                                                            >
-                                                                                <i className="bi bi-trash"></i>
-                                                                            </button>
-                                                                        </td>
-                                                                    </tr>
-                                                                ))}
+                                                                                    {peca.preco_com_desconto < peca.preco_unitario && (
+                                                                                        <div>
+                                                                                            <small className="text-success">
+                                                                                                (Economia: €{(peca.preco_unitario - precoComDesconto).toFixed(2)})
+                                                                                            </small>
+                                                                                        </div>
+                                                                                    )}
+                                                                                </td>
+                                                                                <td>
+                                                                                    <strong>€{totalItem.toFixed(2)}</strong>
+                                                                                </td>
+                                                                                <td>
+                                                                                    {peca.existeNoSistema ? (
+                                                                                        <div>
+                                                                                            <span className="badge bg-success">
+                                                                                                <i className="bi bi-check-circle me-1"></i>
+                                                                                                Existe no Sistema
+                                                                                            </span>
+                                                                                        </div>
+                                                                                    ) : (
+                                                                                        <span className="badge bg-warning">
+                                                                                            <i className="bi bi-exclamation-circle me-1"></i>
+                                                                                            Não Encontrada
+                                                                                        </span>
+                                                                                    )}
+                                                                                </td>
+                                                                                <td>
+                                                                                    <div className="btn-group">
+                                                                                        <button
+                                                                                            type="button"
+                                                                                            className="btn btn-outline-primary btn-sm"
+                                                                                            onClick={() => iniciarEdicaoPeca(peca)}
+                                                                                            title="Editar peça"
+                                                                                        >
+                                                                                            <i className="bi bi-pencil"></i>
+                                                                                        </button>
+                                                                                        <button
+                                                                                            type="button"
+                                                                                            className="btn btn-outline-danger btn-sm"
+                                                                                            onClick={() => removerPeca(peca.id)}
+                                                                                            title="Remover peça"
+                                                                                        >
+                                                                                            <i className="bi bi-trash"></i>
+                                                                                        </button>
+                                                                                    </div>
+                                                                                </td>
+                                                                            </tr>
+                                                                        );
+                                                                    })}
                                                             </tbody>
                                                         </table>
                                                     </div>
                                                 </div>
+                                            </div>
+                                        )}
+
+                                        {/* Modal para Editar Desconto */}
+                                        <ReactModal
+                                            isOpen={showModalDesconto}
+                                            onRequestClose={fecharModalDesconto}
+                                            contentLabel="Editar Desconto"
+                                            className="ReactModal__Content"
+                                            overlayClassName="ReactModal__Overlay"
+                                            closeTimeoutMS={200}
+                                        >
+                                            <div className="modal-header">
+                                                <h3>Aplicar Desconto</h3>
+                                                <button onClick={fecharModalDesconto}>&times;</button>
+                                            </div>
+
+                                            <div className="modal-body">
+                                                <div className="mb-3">
+                                                    <label className="form-label">Tipo de Desconto</label>
+                                                    <select
+                                                        className="form-select"
+                                                        value={descontoAtual.tipo}
+                                                        onChange={(e) => setDescontoAtual({ ...descontoAtual, tipo: e.target.value })}
+                                                    >
+                                                        <option value="nenhum">Sem desconto</option>
+                                                        <option value="percentual">Percentual (%)</option>
+                                                    </select>
+                                                </div>
+
+                                                {descontoAtual.tipo === 'percentual' && (
+                                                    <div className="mb-3">
+                                                        <label className="form-label">Percentual de Desconto (%)</label>
+                                                        <input
+                                                            type="number"
+                                                            className="form-control"
+                                                            step="1"
+                                                            min="0"
+                                                            max="100"
+                                                            value={descontoAtual.percentual || ''}
+                                                            onChange={(e) => setDescontoAtual({ ...descontoAtual, percentual: parseInt(e.target.value) || 0 })}
+                                                        />
+                                                    </div>
+                                                )}
+
+                                                <div className="alert alert-info mt-3">
+                                                    <strong>Pré-visualização:</strong>
+                                                    <div>Preço Original: €{pecaSelecionada?.preco_unitario?.toFixed(2) || '0.00'}</div>
+                                                    <div>Preço com Desconto: €{calcularPrecoComDesconto().toFixed(2)}</div>
+                                                    {calcularPrecoComDesconto() < (pecaSelecionada?.preco_unitario || 0) && (
+                                                        <div className="text-success">
+                                                            Economia: €{((pecaSelecionada?.preco_unitario || 0) - calcularPrecoComDesconto()).toFixed(2)}
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            </div>
+
+                                            <div className="modal-footer">
+                                                <button className="btn btn-secondary" onClick={fecharModalDesconto}>
+                                                    Cancelar
+                                                </button>
+                                                <button className="btn btn-primary" onClick={aplicarDesconto}>
+                                                    Aplicar Desconto
+                                                </button>
+                                            </div>
+                                        </ReactModal>
+                                        {pecasNecessarias.length === 0 && (
+                                            <div className="alert alert-info" role="alert">
+                                                <i className="bi bi-info-circle me-2"></i>
+                                                Nenhuma peça adicionada. Utilize o formulário acima para adicionar peças necessárias.
                                             </div>
                                         )}
                                     </div>
@@ -942,4 +1309,4 @@ function ReparacoesRegisto() {
     )
 }
 
-export default ReparacoesRegisto
+export default ReparacoesRegisto;

@@ -413,7 +413,7 @@ function ReparacoesView() {
                 width: "180px",
             },
             {
-                name: "Marca/Descrição",
+                name: "Ref. Interna",
                 selector: (row) => row.marca || "N/A",
                 sortable: true,
                 wrap: true,
@@ -443,6 +443,35 @@ function ReparacoesView() {
                         {formatCurrency(Number(row.preco_total || 0) + Number(row.mao_obra || 0))}
                     </span>
                 ),
+            },
+            {
+                name: "Desconto",
+                selector: (row) => {
+                    if (row.tipo_desconto === "unitario") {
+                        return row.desconto_unitario || 0
+                    } else if (row.tipo_desconto === "percentual") {
+                        return row.desconto_percentual || 0
+                    }
+                    return 0
+                },
+                sortable: true,
+                width: "120px",
+                cell: (row) => {
+                    if (row.tipo_desconto === "unitario") {
+                        return (
+                            <span className="fw-bold text-primary">
+                                -{formatCurrency(row.desconto_unitario || 0)} <small className="text-muted">(un.)</small>
+                            </span>
+                        )
+                    } else if (row.tipo_desconto === "percentual") {
+                        return (
+                            <span className="fw-bold text-primary">
+                                -{row.desconto_percentual || 0}% <small className="text-muted">(%)</small>
+                            </span>
+                        )
+                    }
+                    return <span className="text-muted">—</span>
+                },
             },
             {
                 name: "Observações",

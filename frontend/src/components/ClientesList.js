@@ -44,10 +44,16 @@ function ClientesList() {
         setMostrarForm(true)
     }
 
-    const handleSalvarCliente = () => {
+    const handleSalvarCliente = (clienteId) => {
         setMostrarForm(false)
         setClienteEditando(null)
-        carregarClientes()
+        carregarClientes().then(() => {
+            // Se foi criado um novo cliente, podemos fazer algo específico
+            if (clienteId && !clienteEditando) {
+                console.log("Novo cliente criado com ID:", clienteId)
+                // Aqui você pode adicionar lógica adicional se necessário
+            }
+        })
     }
 
     const handleCancelarForm = () => {
