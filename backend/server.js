@@ -33,11 +33,11 @@ const dbConfig = {
 
 const pool = mysql.createPool(dbConfig)
 
+
 async function generateRepairPDF(reparacaoId) {
     try {
-        console.log(`🔍 Buscando dados para PDF da reparação ${reparacaoId}`)
+        console.log(`🔍 Buscando dados para PDF da reparação ${reparacaoId}`);
 
-        // Buscar dados da reparação
         const [reparacao] = await pool.execute(
             `SELECT r.*, c.nome as cliente_nome, c.morada as cliente_morada,
                 c.numero_interno as cliente_numero, c.telefone as cliente_telefone,
@@ -46,16 +46,13 @@ async function generateRepairPDF(reparacaoId) {
             LEFT JOIN cliente c ON r.cliente_id = c.id
             WHERE r.id = ?`,
             [reparacaoId],
-        )
+        );
 
-        if (reparacao.length === 0) {
-            throw new Error("Reparação não encontrada")
-        }
+        if (reparacao.length === 0) throw new Error("Reparação não encontrada");
 
-        const rep = reparacao[0]
-        console.log(`✅ Reparação encontrada: ${rep.nomemaquina}`)
+        const rep = reparacao[0];
+        console.log(`✅ Reparação encontrada: ${rep.nomemaquina}`);
 
-        // Buscar peças da reparação
         const [pecas] = await pool.execute(
             `SELECT tipopeca, marca, quantidade,
                 COALESCE(preco_unitario, 0) as preco_unitario,
@@ -67,227 +64,149 @@ async function generateRepairPDF(reparacaoId) {
             WHERE reparacao_id = ?
             ORDER BY tipopeca ASC`,
             [reparacaoId],
-        )
+        );
 
-        console.log(`📦 Encontradas ${pecas.length} peças`)
+        console.log(`📦 Encontradas ${pecas.length} peças`);
 
-        // Criar PDF
-        const doc = new PDFDocument({
-            margin: 50,
-            size: "A4",
-        })
-        const chunks = []
-        doc.on("data", (chunk) => chunks.push(chunk))
+        const doc = new PDFDocument({ margin: 50, size: "A4" });
+        const chunks = [];
+        doc.on("data", chunk => chunks.push(chunk));
 
         return new Promise((resolve, reject) => {
-            doc.on("end", () => {
-                const pdfBuffer = Buffer.concat(chunks)
-                console.log(`✅ PDF gerado com sucesso! Tamanho: ${pdfBuffer.length} bytes`)
-                resolve(pdfBuffer)
-            })
-
-            doc.on("error", (error) => {
-                console.error("❌ Erro ao gerar PDF:", error)
-                reject(error)
-            })
+            doc.on("end", () => resolve(Buffer.concat(chunks)));
+            doc.on("error", reject);
 
             try {
-                let yPos = 40
-                const leftX = 40
-                const rightX = 390
+                let y = 40;
+                const left = 40, right = 390;
+                const col = { d: left, ref: 290, qtd: 390, preco: 425, dsc: 475, total: 510 };
+                const limit = () => doc.page.height - doc.page.margins.bottom;
 
-                // Cabeçalho Empresa (esquerda)
-                doc.fontSize(10).font("Helvetica-Bold").text("Ouremáquinas Oliveira, Marques e Alves, Lda.", leftX, yPos)
-                doc.fontSize(9).font("Helvetica")
-                    .text("Rua Dr. Francisco de Sá Carneiro, nº120", leftX, yPos + 15)
-                    .text("2490-548 Ourém", leftX, yPos + 27)
-                    .text("Tel.: 249 541 336", leftX, yPos + 39)
-                    .text("(chamada para a rede fixa nacional)", leftX, yPos + 51)
-                    .text("www.ouremaquinas.pt", leftX, yPos + 63)
-                    .text("geral@ouremaquinas.pt", leftX, yPos + 75)
+                const checkSpace = space => {
+                    if (y + space > limit()) {
+                        doc.addPage();
+                        y = 40;
+                    }
+                };
 
-                // Cabeçalho Cliente (direita)
-                doc.fontSize(9).font("Helvetica-Bold").text("Exmo(s). Sr(s).:", rightX, yPos)
-                doc.font("Helvetica")
-                    .text((rep.cliente_nome || "").toUpperCase(), rightX, yPos + 15)
+                const textBlock = (text, x, options = {}) => {
+                    const height = doc.heightOfString(text, options);
+                    checkSpace(height);
+                    doc.text(text, x, y, options);
+                    y += height + 2;
+                };
 
-                let clienteY = yPos + 27
+                // Cabeçalho empresa
+                doc.fontSize(10).font("Helvetica-Bold").text("Ouremáquinas Oliveira, Marques e Alves, Lda.", left, y);
+                y += 12;
+                doc.fontSize(9).font("Helvetica");
+                ["Rua Dr. Francisco de Sá Carneiro, nº120", "2490-548 Ourém", "Tel.: 249 541 336",
+                    "(chamada para a rede fixa nacional)", "www.ouremaquinas.pt", "geral@ouremaquinas.pt"]
+                    .forEach(l => textBlock(l, left));
+
+                y = 40;
+                doc.fontSize(9).font("Helvetica-Bold").text("Exmo(s). Sr(s).:", right, y);
+                y += 12;
+                textBlock((rep.cliente_nome || "").toUpperCase(), right);
+
                 if (rep.cliente_morada) {
-                    const moradaParts = rep.cliente_morada.split(",")
-                    moradaParts.forEach(part => {
-                        doc.text(part.trim().toUpperCase(), rightX, clienteY)
-                        clienteY += 12
-                    })
+                    rep.cliente_morada.split(",").map(p => p.trim().toUpperCase()).forEach(part => textBlock(part, right));
                 }
 
-                let infoExtra = ""
-                if (rep.cliente_numero) infoExtra += `Nº Cliente: 211110${rep.cliente_numero}`
+                const info = [];
+                if (rep.cliente_numero) info.push(`Nº Cliente: 211110${rep.cliente_numero}`);
+                if (rep.cliente_nif) info.push(`NIF: ${rep.cliente_nif}`);
+                info.forEach(line => textBlock(line, right));
 
-                if (rep.cliente_nif) {
-                    doc.text(infoExtra, rightX, clienteY);
-                    clienteY += 12; // Adiciona espaçamento antes do NIF
-                    doc.text(`NIF: ${rep.cliente_nif}`, rightX, clienteY);
-                    clienteY += 12;
-                } else if (infoExtra) {
-                    doc.text(infoExtra, rightX, clienteY);
-                    clienteY += 12;
-                }
+                y += 20;
+                doc.fontSize(11).font("Helvetica-Bold").text("ORÇAMENTO DE REPARAÇÃO", 0, y, { align: "center" });
+                y += 20;
 
-                yPos = Math.max(yPos + 90, clienteY + 30)
+                doc.fontSize(10).font("Helvetica")
+                    .text(`Reparação Nº: ${rep.numreparacao || rep.id}`, left, y)
+                    .text(`Data: ${new Date(rep.dataentrega).toLocaleDateString("pt-PT")}`, 450, y);
+                y += 12;
+                textBlock(`Estado: ${rep.estadoorcamento || "N/A"}`, left);
 
-                // ==================== TÍTULO ====================
-                doc.font("Helvetica-Bold").fontSize(11).text("ORÇAMENTO DE REPARAÇÃO", 0, yPos, {
-                    align: "center",
-                    width: doc.page.width
-                })
+                doc.fontSize(11).font("Helvetica-Bold").text("EQUIPAMENTO", left, y);
+                y += 12;
+                doc.fontSize(10).font("Helvetica")
+                    .text(`Máquina: ${rep.nomemaquina}`, left, y);
+                y += 11;
+                textBlock(`Estado da Reparação: ${rep.estadoreparacao}`, left);
 
-                yPos += 18
 
-                // ==================== INFO REPARAÇÃO ====================
-                const leftCol = 40
-                const rightCol = 450
+                doc.fontSize(11).font("Helvetica-Bold").text("PEÇAS E SERVIÇOS", left, y);
+                y += 13;
 
-                doc.font("Helvetica").fontSize(10)
-                    .text(`Reparação Nº: ${rep.numreparacao || rep.id}`, leftCol, yPos)
-                    .text(`Data: ${new Date(rep.dataentrega).toLocaleDateString("pt-PT")}`, rightCol, yPos)
+                doc.fontSize(9).font("Helvetica-Bold")
+                    .text("DESCRIÇÃO", col.d, y)
+                    .text("REF. INTERNA", col.ref, y)
+                    .text("QTD", col.qtd, y)
+                    .text("PREÇO", col.preco, y)
+                    .text("DSC", col.dsc, y)
+                    .text("TOTAL", col.total, y);
+                y += 10;
+                doc.moveTo(col.d, y).lineTo(550, y).stroke();
+                y += 5;
 
-                yPos += 12
-                doc.text(`Estado: ${rep.estadoorcamento || "N/A"}`, leftCol, yPos)
+                let totalPecas = 0;
 
-                yPos += 18
+                pecas.forEach(p => {
+                    const qtd = Number(p.quantidade);
+                    const unit = Number(p.preco_unitario);
+                    const desc = Number(p.desconto_percentual);
+                    const final = p.preco_com_desconto != null ? Number(p.preco_com_desconto) : unit;
+                    const total = final * qtd;
 
-                // ==================== EQUIPAMENTO ====================
-                doc.font("Helvetica-Bold").fontSize(11).text("EQUIPAMENTO", leftCol, yPos)
-                yPos += 12
-                doc.font("Helvetica").fontSize(10).text(`Máquina: ${rep.nomemaquina}`, leftCol, yPos)
-                yPos += 11
-                doc.text(`Estado da Reparação: ${rep.estadoreparacao}`, leftCol, yPos)
+                    checkSpace(12);
+                    doc.fontSize(9).font("Helvetica")
+                        .text(p.tipopeca, col.d, y, { width: col.ref - col.d - 5 })
+                        .text(p.marca, col.ref, y, { width: col.qtd - col.ref - 5 })
+                        .text(qtd.toString(), col.qtd, y)
+                        .text(`€${unit.toFixed(2)}`, col.preco, y)
+                        .text(`${desc.toFixed(1)}`, col.dsc, y)
+                        .text(`€${total.toFixed(2)}`, col.total, y);
 
-                yPos += 18
+                    totalPecas += total;
+                    y += 12;
+                });
 
-                // ==================== DESCRIÇÃO ====================
-                if (rep.descricao) {
-                    doc.font("Helvetica-Bold").fontSize(10).text("DESCRIÇÃO DA REPARAÇÃO", leftCol, yPos)
-                    yPos += 12
-                    doc.font("Helvetica").fontSize(8).text(rep.descricao.toUpperCase(), leftCol, yPos, { width: 500 })
-                    yPos += 15
-                }
-
-                // ==================== TABELA PEÇAS ====================
-                doc.font("Helvetica-Bold").fontSize(11).text("PEÇAS E SERVIÇOS", leftCol, yPos)
-                yPos += 13
-
-                // Cabeçalhos
-                const col1 = 40 // DESCRIÇÃO
-                const col2 = 290 // DESC. INTERNA
-                const col3 = 390 // QTD
-                const col4 = 425 // PREÇO
-                const col5 = 475 // DSC
-                const col6 = 510 // TOTAL
-
-                doc.font("Helvetica-Bold").fontSize(9)
-                    .text("DESCRIÇÃO", col1, yPos)
-                    .text("REF. INTERNA", col2, yPos)
-                    .text("QTD", col3, yPos)
-                    .text("PREÇO", col4, yPos)
-                    .text("DSC", col5, yPos)
-                    .text("TOTAL", col6, yPos)
-
-                yPos += 10
-                doc.moveTo(col1, yPos).lineTo(550, yPos).stroke()
-                yPos += 5
-
-                let totalPecas = 0
-
-                // Itens
-                if (pecas.length > 0) {
-                    pecas.forEach((peca) => {
-                        const quantidade = Number(peca.quantidade)
-                        const precoUnit = Number(peca.preco_unitario)
-                        const descontoPercentual = Number(peca.desconto_percentual) || 0
-                        const precoComDesconto = peca.preco_com_desconto !== null && peca.preco_com_desconto !== undefined
-                            ? Number(peca.preco_com_desconto)
-                            : precoUnit
-                        const precoTotal = quantidade * precoComDesconto
-
-                        doc.font("Helvetica").fontSize(9)
-                            .text(peca.tipopeca, col1, yPos)
-                            .text(peca.marca, col2, yPos)
-                            .text(`${quantidade}`, col3, yPos)
-                            .text(`€${precoUnit.toFixed(2)}`, col4, yPos)
-                            .text(`${descontoPercentual.toFixed(1)}`, col5, yPos)
-                            .text(`€${precoTotal.toFixed(2)}`, col6, yPos)
-
-                        totalPecas += precoTotal
-                        yPos += 10
-                    })
-                }
-
-                yPos += 20
-
-                // ==================== TOTAIS ====================
-                // Calcular totais
                 const maoObra = Number(rep.mao_obra) || 0;
-                const total = totalPecas + maoObra;
+                const totalGeral = totalPecas + maoObra;
+                y += 315;
+                checkSpace(50);
+                doc.fontSize(9).font("Helvetica")
+                    .text(`Subtotal Peças: €${totalPecas.toFixed(2)}`, 440, y);
+                y += 14;
+                doc.text(`Mão de Obra: €${maoObra.toFixed(2)}`, 440, y);
+                y += 14;
+                doc.fontSize(12).font("Helvetica-Bold")
+                    .text(`TOTAL: €${totalGeral.toFixed(2)}`, 440, y);
+                y += 15;
 
-                // Posicionar totais no rodapé da página
-                const bottomY = doc.page.height - 200;
-
-                doc.font("Helvetica").fontSize(9)
-                    .text(`Subtotal Peças: ${totalPecas.toFixed(2)}€`, 440, bottomY + 58);
-                doc.text(`Mão de Obra: ${maoObra.toFixed(2)}€`, 440, bottomY + 70);
-                doc.font("Helvetica-Bold").fontSize(12)
-                    .text(`TOTAL: ${total.toFixed(2)}€`, 440, bottomY + 85);
-
-                // ==================== CONDIÇÕES ====================
-                // Calcular espaço necessário para o grupo de condições
-                const condicoes = [
+                doc.fontSize(8).font("Helvetica-Bold").text("CONDIÇÕES:", left, y);
+                y += 10;
+                doc.fontSize(7).font("Helvetica");
+                [
                     "• Este orçamento é válido por 30 dias a partir da data de emissão.",
                     "• Preços sujeitos a IVA à taxa em vigor.",
                     "• A reparação só será iniciada após aprovação do orçamento.",
-                    "• Equipamento não levantado em 30 dias após o aviso , será considerado abandonado.",
-                ];
+                    "• Equipamento não levantado em 30 dias após o aviso, será considerado abandonado."
+                ].forEach(line => textBlock(line, left, { width: 500 }));
 
-
-
-                doc.font("Helvetica-Bold").fontSize(8).text("CONDIÇÕES:", leftCol);
-
-                doc.moveDown();
-                doc.font("Helvetica").fontSize(7);
-
-                condicoes.forEach((linha) => {
-                    doc.text(linha, leftCol, doc.y - 2, { width: 500 });
-                    doc.moveDown(0.3);
-                });
-
-
-                console.log("📄 Finalizando geração do PDF...")
-                doc.end()
-            } catch (error) {
-                console.error("❌ Erro durante a criação do PDF:", error)
-                reject(error)
+                doc.end();
+            } catch (err) {
+                console.error("❌ Erro durante a criação do PDF:", err);
+                reject(err);
             }
-        })
+        });
     } catch (error) {
-        console.error("❌ Erro ao gerar PDF:", error)
-        throw error
+        console.error("❌ Erro ao gerar PDF:", error);
+        throw error;
     }
 }
 
-// Função utilitária
-function toNull(value) {
-    return value === undefined || value === "" || value === null ? null : value
-}
-
-// Função para tratar erros
-function handleQueryError(err, res, message) {
-    console.error("Database Error:", err)
-    res.status(500).json({
-        error: message,
-        details: process.env.NODE_ENV === "development" ? err.message : undefined,
-    })
-}
-module.exports = { generateRepairPDF, toNull, handleQueryError }
 
 
 // ==================== FUNÇÃO PARA VERIFICAR ALARMES IMEDIATOS ====================
