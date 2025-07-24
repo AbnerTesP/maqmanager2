@@ -33,6 +33,21 @@ const dbConfig = {
 
 const pool = mysql.createPool(dbConfig)
 
+// ==================== FUNÇÕES UTILITÁRIAS ====================
+// Função utilitária
+function toNull(value) {
+    return value === undefined || value === "" || value === null ? null : value
+}
+
+// Função para tratar erros
+function handleQueryError(err, res, message) {
+    console.error("Database Error:", err)
+    res.status(500).json({
+        error: message,
+        details: process.env.NODE_ENV === "development" ? err.message : undefined,
+    })
+}
+
 
 async function generateRepairPDF(reparacaoId) {
     try {
@@ -78,14 +93,14 @@ async function generateRepairPDF(reparacaoId) {
 
             try {
                 let y = 40;
-                const left = 40, right = 390;
+                const left = 40, right = 400;
                 const col = { d: left, ref: 290, qtd: 390, preco: 425, dsc: 475, total: 510 };
                 const limit = () => doc.page.height - doc.page.margins.bottom;
 
                 const checkSpace = space => {
                     if (y + space > limit()) {
                         doc.addPage();
-                        y = 40;
+                        y = 50;
                     }
                 };
 
@@ -93,7 +108,7 @@ async function generateRepairPDF(reparacaoId) {
                     const height = doc.heightOfString(text, options);
                     checkSpace(height);
                     doc.text(text, x, y, options);
-                    y += height + 2;
+                    y += height + 1;
                 };
 
                 // Cabeçalho empresa
@@ -118,7 +133,7 @@ async function generateRepairPDF(reparacaoId) {
                 if (rep.cliente_nif) info.push(`NIF: ${rep.cliente_nif}`);
                 info.forEach(line => textBlock(line, right));
 
-                y += 20;
+                y += 50;
                 doc.fontSize(11).font("Helvetica-Bold").text("ORÇAMENTO DE REPARAÇÃO", 0, y, { align: "center" });
                 y += 20;
 
@@ -174,8 +189,21 @@ async function generateRepairPDF(reparacaoId) {
 
                 const maoObra = Number(rep.mao_obra) || 0;
                 const totalGeral = totalPecas + maoObra;
-                y += 315;
-                checkSpace(50);
+
+                // Guardar a posição original antes de escrever totais
+                const pageHeight = doc.page.height;
+                const bottomMargin = doc.page.margins.bottom;
+                const totalBlockHeight = 100; // altura estimada do bloco
+                const minY = pageHeight - bottomMargin - totalBlockHeight;
+
+                if (y > minY) {
+                    doc.addPage();
+                    y = 50;
+                }
+
+                // Posiciona bloco no rodapé (de forma visualmente fixa)
+                y = pageHeight - bottomMargin - totalBlockHeight + 1;
+
                 doc.fontSize(9).font("Helvetica")
                     .text(`Subtotal Peças: €${totalPecas.toFixed(2)}`, 440, y);
                 y += 14;
@@ -183,7 +211,7 @@ async function generateRepairPDF(reparacaoId) {
                 y += 14;
                 doc.fontSize(12).font("Helvetica-Bold")
                     .text(`TOTAL: €${totalGeral.toFixed(2)}`, 440, y);
-                y += 15;
+                y += 20;
 
                 doc.fontSize(8).font("Helvetica-Bold").text("CONDIÇÕES:", left, y);
                 y += 10;
@@ -193,7 +221,10 @@ async function generateRepairPDF(reparacaoId) {
                     "• Preços sujeitos a IVA à taxa em vigor.",
                     "• A reparação só será iniciada após aprovação do orçamento.",
                     "• Equipamento não levantado em 30 dias após o aviso, será considerado abandonado."
-                ].forEach(line => textBlock(line, left, { width: 500 }));
+                ].forEach(line => {
+                    doc.text(line, left, y, { width: 500 });
+                    y += 10;
+                });
 
                 doc.end();
             } catch (err) {
@@ -1219,8 +1250,6 @@ app.post("/reparacoes", async (req, res) => {
 // Endpoint para atualizar reparação
 app.put("/reparacoes/:id", async (req, res) => {
     const { id } = req.params
-    if (!id || isNaN(id)) return res.status(400).json({ error: "ID inválido" })
-
     let {
         dataentrega,
         datasaida,
@@ -1232,60 +1261,87 @@ app.put("/reparacoes/:id", async (req, res) => {
         numreparacao,
         cliente_id,
         mao_obra,
+        pecasNecessarias,
+        pecas, // Novo campo para compatibilidade com o novo frontend
         descricao,
+        // Novos campos do frontend atualizado
+        equipamento,
+        estado,
+        data_entrada,
+        data_prevista,
+        data_conclusao,
     } = req.body
 
-    // Aplicar toNull
-    dataentrega = toNull(dataentrega)
-    datasaida = toNull(datasaida)
-    dataconclusao = toNull(dataconclusao)
-    estadoorcamento = toNull(estadoorcamento)
-    estadoreparacao = toNull(estadoreparacao)
-    nomecentro = toNull(nomecentro)
-    nomemaquina = toNull(nomemaquina)
-    numreparacao = toNull(numreparacao)
-    cliente_id = toNull(cliente_id)
-    mao_obra = Number(mao_obra) || 0
-    descricao = toNull(descricao)
+    console.log("📝 Dados recebidos para atualização:", JSON.stringify(req.body, null, 2))
 
-    // Determinar datas de orçamento baseado no estado
-    let updateOrcamentoFields = ""
-    const extraParams = []
-
-    if (estadoorcamento) {
-        if (estadoorcamento.toLowerCase().includes("aceite")) {
-            updateOrcamentoFields = ", data_orcamento_aceito = COALESCE(data_orcamento_aceito, ?)"
-            extraParams.push(datasaida || dataentrega)
-        } else if (estadoorcamento.toLowerCase().includes("recusado")) {
-            updateOrcamentoFields = ", data_orcamento_recusado = COALESCE(data_orcamento_recusado, ?)"
-            extraParams.push(dataconclusao || dataentrega)
-            // Lógica para orçamento recusado
-            if (!dataconclusao) {
-                const hoje = new Date().toISOString().split("T")[0]
-                dataconclusao = hoje
-            }
-            estadoreparacao = "Sem reparação"
-        }
-    }
-
-    // Resetar alarme_visto se o orçamento foi definido
-    let resetarAlarme = ""
-    if (estadoorcamento && estadoorcamento !== "" && estadoorcamento !== "Pendente") {
-        resetarAlarme = ", alarme_visto = 0"
-    }
-
-    const sql = `
-    UPDATE reparacao SET
-      dataentrega = ?, datasaida = ?, dataconclusao = ?,
-      estadoorcamento = ?, estadoreparacao = ?,
-      nomecentro = ?, nomemaquina = ?,
-      numreparacao = ?, cliente_id = ?, mao_obra = ?, descricao = ?
-      ${updateOrcamentoFields}
-      ${resetarAlarme}
-    WHERE id = ?
-  `
+    if (!id || isNaN(id)) return res.status(400).json({ error: "ID inválido" })
 
     try {
+        // Mapear campos do novo frontend para o formato antigo se necessário
+        if (equipamento && !nomemaquina) nomemaquina = equipamento
+        if (data_entrada && !dataentrega) dataentrega = data_entrada
+        if (data_prevista && !datasaida) datasaida = data_prevista
+        if (data_conclusao && !dataconclusao) dataconclusao = data_conclusao
+        if (estado && !estadoreparacao) estadoreparacao = estado
+        if (pecas && !pecasNecessarias) pecasNecessarias = pecas
+
+        // Aplicar toNull e conversões
+        dataentrega = toNull(dataentrega)
+        datasaida = toNull(datasaida)
+        dataconclusao = toNull(dataconclusao)
+        estadoorcamento = toNull(estadoorcamento)
+        estadoreparacao = toNull(estadoreparacao)
+        nomecentro = toNull(nomecentro)
+        nomemaquina = toNull(nomemaquina)
+        numreparacao = toNull(numreparacao)
+        cliente_id = toNull(cliente_id)
+        mao_obra = Number(mao_obra) || 0
+        descricao = toNull(descricao)
+
+        // Determinar datas de orçamento baseado no estado
+        let updateOrcamentoFields = ""
+        const extraParams = []
+
+        if (estadoorcamento) {
+            if (estadoorcamento.toLowerCase().includes("aceite") || estadoorcamento.toLowerCase().includes("aceito")) {
+                updateOrcamentoFields = ", data_orcamento_aceito = COALESCE(data_orcamento_aceito, ?)"
+                extraParams.push(datasaida || dataentrega)
+            } else if (estadoorcamento.toLowerCase().includes("recusado")) {
+                updateOrcamentoFields = ", data_orcamento_recusado = COALESCE(data_orcamento_recusado, ?)"
+                extraParams.push(dataconclusao || dataentrega)
+                // Lógica para orçamento recusado
+                if (!dataconclusao) {
+                    const hoje = new Date().toISOString().split("T")[0]
+                    dataconclusao = hoje
+                }
+                estadoreparacao = "Sem reparação"
+            }
+        }
+
+        // Resetar alarme_visto se o orçamento foi definido
+        let resetarAlarme = ""
+        if (estadoorcamento && estadoorcamento !== "" && estadoorcamento !== "Pendente") {
+            resetarAlarme = ", alarme_visto = 0, ultimo_alarme_aceito = NULL, ultimo_alarme_recusado = NULL"
+        }
+
+        const sql = `
+      UPDATE reparacao SET
+        dataentrega = ?,
+        datasaida = ?,
+        dataconclusao = ?,
+        estadoorcamento = ?,
+        estadoreparacao = ?,
+        nomecentro = ?,
+        nomemaquina = ?,
+        numreparacao = ?,
+        cliente_id = ?,
+        mao_obra = ?,
+        descricao = ?
+        ${updateOrcamentoFields}
+        ${resetarAlarme}
+      WHERE id = ?
+    `
+
         const params = [
             dataentrega,
             datasaida,
@@ -1305,8 +1361,8 @@ app.put("/reparacoes/:id", async (req, res) => {
         const [result] = await pool.execute(sql, params)
         if (result.affectedRows === 0) return res.status(404).json({ error: "Reparação não encontrada" })
 
-        // 🚨 VERIFICAR ALARMES IMEDIATOS APÓS ATUALIZAÇÃO
-        console.log("🔍 Verificando alarmes imediatos após atualização para reparação:", id)
+        // 🔍 VERIFICAR ALARMES IMEDIATOS APÓS ATUALIZAÇÃO
+        console.log(`🔍 Verificando alarmes imediatos após atualização para reparação: ${id}`)
         const verificacaoAlarme = await verificarAlarmesImediatos(id)
 
         let responseMessage = "Reparação atualizada com sucesso"
@@ -1315,8 +1371,8 @@ app.put("/reparacoes/:id", async (req, res) => {
         if (verificacaoAlarme.temAlarme) {
             responseMessage += " - ⚠️ ALARME DETECTADO!"
             alarmeInfo = verificacaoAlarme.alarme
-            console.log("🚨 ATUALIZAÇÃO COM ALARME:", {
-                reparacaoId: id,
+            console.log("🚨 RESPOSTA COM ALARME:", {
+                id,
                 alarme: alarmeInfo,
             })
         }
@@ -1326,6 +1382,7 @@ app.put("/reparacoes/:id", async (req, res) => {
             alarme: alarmeInfo,
         })
     } catch (err) {
+        console.error("❌ Erro ao atualizar reparação:", err)
         handleQueryError(err, res, "Erro ao atualizar a reparação")
     }
 })
@@ -1431,33 +1488,49 @@ app.put("/reparacoes/:id/pecas", async (req, res) => {
 
 // ==================== ROTA PARA GERAR PDF ====================
 app.get("/reparacoes/:id/pdf", async (req, res) => {
-    const { id } = req.params
+    const { id } = req.params;
 
-    console.log(`📄 Iniciando geração de PDF para reparação ID: ${id}`)
+    console.log(`📄 Iniciando geração de PDF para reparação ID: ${id}`);
 
     if (!id || isNaN(id)) {
-        console.error("❌ ID inválido fornecido:", id)
-        return res.status(400).json({ error: "ID inválido" })
+        console.error("❌ ID inválido fornecido:", id);
+        return res.status(400).json({ error: "ID inválido" });
     }
 
     try {
-        const pdfBuffer = await generateRepairPDF(id)
+        // Buscar o número da reparação antes de gerar o PDF
+        const [result] = await pool.execute(
+            `SELECT numreparacao FROM reparacao WHERE id = ?`,
+            [id]
+        );
 
-        // Configurar headers para exibir PDF no navegador
-        res.setHeader("Content-Type", "application/pdf")
-        res.setHeader("Content-Disposition", `inline; filename="orcamento-${id}.pdf"`)
-        res.setHeader("Content-Length", pdfBuffer.length)
+        if (result.length === 0) {
+            return res.status(404).json({ error: "Reparação não encontrada" });
+        }
 
-        console.log("✅ PDF enviado com sucesso para o cliente!")
-        res.send(pdfBuffer)
+        const numReparacao = result[0].numreparacao || id;
+
+        const pdfBuffer = await generateRepairPDF(id);
+
+        // Configurar headers com nome personalizado
+        const filename = `Reparação nº ${numReparacao}.pdf`;
+        const encodedFilename = encodeURIComponent(filename);
+        res.setHeader("Content-Type", "application/pdf");
+        res.setHeader("Content-Disposition", `inline; filename*=UTF-8''${encodedFilename}`);
+        res.setHeader("Content-Length", pdfBuffer.length);
+
+
+        console.log("✅ PDF enviado com sucesso para o cliente!");
+        res.send(pdfBuffer);
     } catch (error) {
-        console.error("❌ Erro ao gerar PDF:", error)
+        console.error("❌ Erro ao gerar PDF:", error);
         res.status(500).json({
             error: "Erro ao gerar PDF",
             details: error.message,
-        })
+        });
     }
-})
+});
+
 
 // ==================== ROTA DE DEBUG ====================
 app.get("/debug/reparacao/:id", async (req, res) => {

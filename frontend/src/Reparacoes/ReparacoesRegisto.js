@@ -51,6 +51,7 @@ function ReparacoesRegisto() {
     const [valorMaoObra, setValorMaoObra] = useState(0)
     const [buscaCliente, setBuscaCliente] = useState("")
     const [mostrarResultados, setMostrarResultados] = useState(false)
+    const [descontoMaoObra, setDescontoMaoObra] = useState(0);
     const [clientesFiltrados, setClientesFiltrados] = useState([])
 
     const [showModalDesconto, setShowModalDesconto] = useState(false);
@@ -412,19 +413,29 @@ function ReparacoesRegisto() {
 
     const calcularTotais = useCallback(() => {
         let totalPecas = 0, totalDescontos = 0;
+
+        // Cálculo das peças
         pecasNecessarias.forEach(peca => {
             const precoDesc = calcularPrecoComDesconto(peca);
             totalPecas += precoDesc * peca.quantidade;
             totalDescontos += (peca.preco_unitario - precoDesc) * peca.quantidade;
         });
-        const totalGeral = totalPecas + valorMaoObra;
+
+        // Aplicar desconto na mão de obra
+        const maoObraComDesconto = valorMaoObra * (1 - (descontoMaoObra / 100));
+        const descontoMaoObraValor = valorMaoObra - maoObraComDesconto;
+
+        const totalGeral = totalPecas + maoObraComDesconto;
+
         return {
             totalPecas: totalPecas.toFixed(2),
             totalGeral: totalGeral.toFixed(2),
-            totalDescontos: totalDescontos.toFixed(2),
-            totalSemDescontos: (totalPecas + totalDescontos).toFixed(2)
+            totalDescontos: (totalDescontos + descontoMaoObraValor).toFixed(2),
+            totalSemDescontos: (totalPecas + totalDescontos + valorMaoObra).toFixed(2),
+            maoObraComDesconto: maoObraComDesconto.toFixed(2),
+            descontoMaoObraValor: descontoMaoObraValor.toFixed(2)
         };
-    }, [pecasNecessarias, valorMaoObra, calcularPrecoComDesconto]);
+    }, [pecasNecessarias, valorMaoObra, descontoMaoObra, calcularPrecoComDesconto]);
 
     const pecasSimilares = useMemo(
         () => buscarPecasSimilares(novaPeca.tipopeca),
@@ -836,6 +847,23 @@ function ReparacoesRegisto() {
                                             />
                                         </div>
 
+                                        <div className="mb-3">
+                                            <label className="form-label">
+                                                <i className="bi bi-percent me-1"></i>
+                                                Desconto na Mão de Obra (%)
+                                            </label>
+                                            <input
+                                                type="number"
+                                                className="form-control"
+                                                value={descontoMaoObra === 0 ? "" : descontoMaoObra}
+                                                onChange={(e) => setDescontoMaoObra(Number.parseFloat(e.target.value) || 0)}
+                                                min="0"
+                                                max="100"
+                                                step="0.01"
+                                                placeholder="0.00"
+                                            />
+                                        </div>
+
                                         {/* Resumo Financeiro */}
                                         <div className="card bg-light">
                                             <div className="card-body">
@@ -853,8 +881,8 @@ function ReparacoesRegisto() {
                                                         <small className="text-muted">Total Descontos</small>
                                                     </div>
                                                     <div className="col-md-3 border-end">
-                                                        <h5 className="text-primary mb-0">€{totais.totalPecas}</h5>
-                                                        <small className="text-muted">Total Peças</small>
+                                                        <h5 className="text-primary mb-0">€{totais.maoObraComDesconto}</h5>
+                                                        <small className="text-muted">Mão de Obra c/ Desc.</small>
                                                     </div>
                                                     <div className="col-md-3">
                                                         <h5 className="text-success mb-0">€{totais.totalGeral}</h5>
