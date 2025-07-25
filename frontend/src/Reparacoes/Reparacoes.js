@@ -10,6 +10,7 @@ import "bootstrap-icons/font/bootstrap-icons.css"
 
 function ReparacoesView() {
     const [reparacoes, setReparacoes] = useState([])
+    const [alarmes, setAlarmes] = useState([])
     const [searchTerm, setSearchTerm] = useState("")
     const [loading, setLoading] = useState(true)
     const [filterStatus, setFilterStatus] = useState("all")
@@ -37,6 +38,13 @@ function ReparacoesView() {
     useEffect(() => {
         fetchReparacoes()
     }, [fetchReparacoes])
+
+    // Buscar alarmes ativos ao montar
+    useEffect(() => {
+        axios.get("http://localhost:8082/alarmes/resumo")
+            .then(res => setAlarmes(res.data.alarmes || []))
+            .catch(() => setAlarmes([]))
+    }, [])
 
     const handleView = useCallback(
         (row) => {
@@ -79,6 +87,21 @@ function ReparacoesView() {
         handleStatusFilter = useCallback((e) => {
             setFilterStatus(e.target.value)
         }, [])
+
+    // IDs das reparações com alarme
+    const reparacoesComAlarme = useMemo(
+        () => new Set(alarmes.map(a => a.reparacao_id)),
+        [alarmes]
+    )
+
+    const conditionalRowStyles = [
+        {
+            when: row => reparacoesComAlarme.has(row.id),
+            style: {
+                backgroundColor: "#fff3cd", // amarelo claro (Bootstrap warning)
+            },
+        },
+    ]
 
     // Função para determinar o status da reparação
     const getStatus = useCallback((reparacao) => {
@@ -158,6 +181,7 @@ function ReparacoesView() {
 
     const reparacoesColumns = useMemo(
         () => [
+
             {
                 name: "Ações",
                 cell: (row) => (
@@ -174,7 +198,16 @@ function ReparacoesView() {
                     </div>
                 ),
                 ignoreRowClick: true,
-                width: "150px",
+                width: "140px",
+            },
+            {
+                name: "Alarme",
+                cell: (row) =>
+                    reparacoesComAlarme.has(row.id) ? (
+                        <i className="bi bi-bell-fill text-warning" title="Possui alarme"></i>
+                    ) : null,
+                width: "50px",
+                ignoreRowClick: true,
             },
             {
                 name: "Status",
@@ -382,6 +415,7 @@ function ReparacoesView() {
                                     striped
                                     responsive
                                     customStyles={customStyles}
+                                    conditionalRowStyles={conditionalRowStyles}
                                     noDataComponent={
                                         <div className="text-center py-4">
                                             <i className="bi bi-inbox display-4 text-muted"></i>

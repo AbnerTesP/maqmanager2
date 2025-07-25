@@ -133,28 +133,18 @@ function ReparacoesRegisto() {
             setErro("Tipo de peça e marca são obrigatórios.");
             return;
         }
-
         const precoFinal = calcularPrecoComDesconto(novaPeca);
-
         setPecasNecessarias(prev =>
             prev.map(peca =>
                 peca.id === pecaEditavel.id
                     ? {
                         ...peca,
-                        tipopeca: novaPeca.tipopeca,
-                        marca: novaPeca.marca,
-                        quantidade: novaPeca.quantidade,
-                        preco_unitario: novaPeca.preco_unitario,
-                        preco_com_desconto: precoFinal,
-                        desconto_unitario: novaPeca.desconto_unitario,
-                        desconto_percentual: novaPeca.desconto_percentual,
-                        tipo_desconto: novaPeca.tipo_desconto,
-                        observacao: novaPeca.observacao
+                        ...novaPeca,
+                        preco_com_desconto: precoFinal
                     }
                     : peca
             )
         );
-
         cancelarEdicao();
     };
 
@@ -302,32 +292,36 @@ function ReparacoesRegisto() {
         setPecaSelecionada(null);
     };
 
+    // Função centralizada para calcular preço com desconto
     const calcularPrecoComDesconto = useCallback((peca) => {
         if (!peca) return 0;
-        let preco = Number(peca.preco_unitario) || 0;
-        if (peca.tipo_desconto === "valor" && peca.desconto_unitario > 0) {
-            preco = Math.max(0, preco - Number(peca.desconto_unitario));
-        } else if (peca.tipo_desconto === "percentual" && peca.desconto_percentual > 0) {
-            preco = preco * (1 - Number(peca.desconto_percentual) / 100);
+        const preco = Number(peca.preco_unitario) || 0;
+        if (peca.tipo_desconto === "percentual" && peca.desconto_percentual > 0) {
+            return +(preco * (1 - Number(peca.desconto_percentual) / 100)).toFixed(2);
         }
         return preco;
     }, []);
 
+    // Aplicar desconto (otimizado)
     const aplicarDesconto = () => {
-        const pecasAtualizadas = pecasNecessarias.map(peca => {
-            if (peca.id === pecaSelecionada.id) {
-                return {
-                    ...peca,
-                    tipo_desconto: descontoAtual.tipo === 'nenhum' ? null : descontoAtual.tipo,
-                    desconto_unitario: descontoAtual.tipo === 'valor' ? descontoAtual.valor : null,
-                    desconto_percentual: descontoAtual.tipo === 'percentual' ? descontoAtual.percentual : null,
-                    preco_com_desconto: calcularPrecoComDesconto()
-                };
-            }
-            return peca;
-        });
-
-        setPecasNecessarias(pecasAtualizadas);
+        setPecasNecessarias(prev =>
+            prev.map(peca => {
+                if (peca.id === pecaSelecionada.id) {
+                    let desconto_percentual = descontoAtual.tipo === "percentual" ? descontoAtual.percentual : 0;
+                    return {
+                        ...peca,
+                        tipo_desconto: descontoAtual.tipo,
+                        desconto_percentual,
+                        preco_com_desconto: calcularPrecoComDesconto({
+                            ...peca,
+                            tipo_desconto: descontoAtual.tipo,
+                            desconto_percentual
+                        })
+                    };
+                }
+                return peca;
+            })
+        );
         fecharModalDesconto();
     };
 
@@ -360,34 +354,34 @@ function ReparacoesRegisto() {
         [pecasExistentes],
     )
 
+    // Adicionar peça (otimizado)
     const adicionarPeca = useCallback(() => {
         if (!novaPeca.tipopeca.trim() || !novaPeca.marca.trim()) {
-            setErro("Tipo de peça e marca são obrigatórios.")
-            return
+            setErro("Tipo de peça e marca são obrigatórios.");
+            return;
         }
         if (novaPeca.tipo_desconto === "percentual" && (novaPeca.desconto_percentual < 0 || novaPeca.desconto_percentual > 100)) {
-            setErro("O desconto percentual deve estar entre 0% e 100%.")
-            return
+            setErro("O desconto percentual deve estar entre 0% e 100%.");
+            return;
         }
         if (novaPeca.preco_unitario < 0) {
-            setErro("O preço unitário não pode ser negativo.")
-            return
+            setErro("O preço unitário não pode ser negativo.");
+            return;
         }
         const pecaJaAdicionada = pecasNecessarias.find(
             (peca) =>
                 peca.tipopeca.toLowerCase().trim() === novaPeca.tipopeca.toLowerCase().trim() &&
                 peca.marca.toLowerCase().trim() === novaPeca.marca.toLowerCase().trim(),
-        )
+        );
         if (pecaJaAdicionada) {
-            setErro("Esta peça já foi adicionada à lista.")
-            return
+            setErro("Esta peça já foi adicionada à lista.");
+            return;
         }
         const precoFinal = calcularPrecoComDesconto(novaPeca);
-        const pecaExistente = verificarPecaExistente(novaPeca.tipopeca, novaPeca.marca)
+        const pecaExistente = verificarPecaExistente(novaPeca.tipopeca, novaPeca.marca);
         const novaPecaCompleta = {
             ...novaPeca,
             id: Date.now(),
-            ordem: pecasNecessarias.length, // Adiciona um índice de ordem
             preco_com_desconto: precoFinal,
             existeNoSistema: !!pecaExistente,
             pecaExistente: pecaExistente || null

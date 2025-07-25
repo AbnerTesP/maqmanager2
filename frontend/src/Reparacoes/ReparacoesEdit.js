@@ -194,6 +194,7 @@ function ReparacoesEdit() {
                 }))
 
                 setPecasNecessarias(pecas)
+                // Sempre faça deep copy para evitar mutação acidental
                 setOriginalPecas(JSON.parse(JSON.stringify(pecas)))
             })
             .catch((error) => {
@@ -252,6 +253,29 @@ function ReparacoesEdit() {
             }))
         },
         [centros],
+    )
+
+    const handleReparacaoChange = useCallback(
+        (e) => {
+            const reparacaoId = e.target.value
+            const reparacaoSelecionada = reparacoes.find((r) => String(r.id) === String(reparacaoId))
+            const novoEstadoReparacao = reparacaoSelecionada ? reparacaoSelecionada.estado : ""
+            let novoEstadoOrcamento = form.estadoorcamento
+
+            if (novoEstadoReparacao?.toLowerCase().includes("concluída")) {
+                novoEstadoOrcamento = "Aceite"
+            } else {
+                novoEstadoReparacao = "Em reparação"
+
+            }
+
+            setForm((prev) => ({
+                ...prev,
+                estadoreparacao: novoEstadoReparacao,
+                estadoorcamento: novoEstadoOrcamento,
+            }))
+        },
+        [orcamentos, form.estadoorcamento],
     )
 
     const handleOrcamentoChange = useCallback(
@@ -568,6 +592,7 @@ function ReparacoesEdit() {
     const handleReset = useCallback(() => {
         if (window.confirm("Tem certeza que deseja restaurar os valores originais?")) {
             setForm(originalForm)
+            // Sempre use deep copy para restaurar o estado original das peças
             setPecasNecessarias(JSON.parse(JSON.stringify(originalPecas)))
             setValorMaoObra(Number(originalForm.valor_mao_obra) || Number(originalForm.mao_obra) || 0)
             setDesconto(Number(originalForm.desconto) || 0)
@@ -865,7 +890,7 @@ function ReparacoesEdit() {
                                             </label>
                                             <select
                                                 className={`form-select ${validationErrors.estadoreparacao ? "is-invalid" : ""}`}
-                                                onChange={handleEstadoreparacaoChange}
+                                                onChange={handleReparacaoChange}
                                                 value={reparacoes.find((r) => r.estado === form.estadoreparacao)?.id || ""}
                                             >
                                                 <option value="">Selecione o estado da Reparação</option>

@@ -256,7 +256,7 @@ async function verificarAlarmesImediatos(reparacaoId) {
         
         -- Calcular dias para cada tipo de alarme
         CASE 
-          WHEN (r.estadoorcamento IS NULL OR r.estadoorcamento = '' OR r.estadoorcamento = 'Pendente')
+          WHEN (r.estadoorcamento IS NULL OR r.estadoorcamento = '' OR r.estadoorcamento = 'Em processo')
           THEN DATEDIFF(CURDATE(), r.dataentrega)
           WHEN r.estadoorcamento IN ('Aceite') AND r.data_orcamento_aceito IS NOT NULL
           THEN DATEDIFF(CURDATE(), r.data_orcamento_aceito)
@@ -267,7 +267,7 @@ async function verificarAlarmesImediatos(reparacaoId) {
         
         -- Determinar tipo de alarme
         CASE 
-          WHEN (r.estadoorcamento IS NULL OR r.estadoorcamento = '' OR r.estadoorcamento = 'Pendente')
+          WHEN (r.estadoorcamento IS NULL OR r.estadoorcamento = '' OR r.estadoorcamento = 'Em processo')
            AND DATEDIFF(CURDATE(), r.dataentrega) >= 15
           THEN 'sem_orcamento'
           WHEN r.estadoorcamento IN ('Aceite')

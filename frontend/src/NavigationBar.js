@@ -1,9 +1,27 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 
 const NavigationBar = () => {
     const location = useLocation();
     const [isMenuOpen, setIsMenuOpen] = useState(false);
+    const [totalAlarmes, setTotalAlarmes] = useState(0);
+
+    useEffect(() => {
+        const carregarTotalAlarmes = async () => {
+            try {
+                const response = await fetch("http://localhost:8082/alarmes/resumo");
+                if (response.ok) {
+                    const data = await response.json();
+                    setTotalAlarmes(data.total || 0);
+                }
+            } catch (err) {
+                setTotalAlarmes(0);
+            }
+        };
+        carregarTotalAlarmes();
+        const interval = setInterval(carregarTotalAlarmes, 2 * 60 * 1000);
+        return () => clearInterval(interval);
+    }, []);
 
     // Esconder navbar em login/registro
     const hideNavBar = location.pathname === '/login' || location.pathname === '/registro';
@@ -34,11 +52,30 @@ const NavigationBar = () => {
                         <li className={`nav-item${location.pathname.startsWith('/clientes') ? ' active' : ''}`}>
                             <Link className="nav-link" to="/clientes">Clientes</Link>
                         </li>
-                        <li className={`nav-item${location.pathname.startsWith('/alarmes') ? ' active' : ''}`}>
+                        <li className={`nav-item${location.pathname.startsWith('/alarmes') ? ' active' : ''} position-relative`}>
+                            {totalAlarmes > 0 && (
+                                <span
+                                    style={{
+                                        position: "absolute",
+                                        top: "-10px",
+                                        left: "90%",
+                                        transform: "translateX(-50%)",
+                                        background: "#dc3545",
+                                        color: "#fff",
+                                        borderRadius: "10px",
+                                        padding: "1px 6px",
+                                        fontSize: "0.60em",
+                                        fontWeight: "bold",
+                                        zIndex: 2,
+                                        minWidth: "24px",
+                                        textAlign: "center",
+                                        marginTop: "5px",
+                                    }}
+                                >
+                                    {totalAlarmes > 99 ? "99+" : totalAlarmes}
+                                </span>
+                            )}
                             <Link className="nav-link" to="/alarmes">Alarmes</Link>
-                        </li>
-                        <li className={`nav-item${location.pathname.startsWith('/notificacoes') ? ' active' : ''}`}>
-                            <Link className="nav-link" to="/notificacoes">Notificações</Link>
                         </li>
                     </ul>
                 </div>
