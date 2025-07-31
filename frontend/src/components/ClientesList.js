@@ -19,6 +19,12 @@ function ClientesList() {
         carregarClientes()
     }, [])
 
+    // Função utilitária para remover acentos
+    function removerAcentos(str) {
+        if (!str) return ""
+        return str.normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+    }
+
     const carregarClientes = async () => {
         try {
             setLoading(true)
@@ -72,13 +78,15 @@ function ClientesList() {
         }
     }
 
-    const clientesFiltrados = clientes.filter(
-        (cliente) =>
-            cliente.nome?.toLowerCase().includes(busca.toLowerCase()) ||
-            cliente.numero_interno?.toLowerCase().includes(busca.toLowerCase()) ||
-            cliente.telefone?.includes(busca) ||
-            cliente.email?.toLowerCase().includes(busca.toLowerCase()),
-    )
+    const clientesFiltrados = clientes.filter((cliente) => {
+        const buscaNormalizada = removerAcentos(busca.toLowerCase())
+        return (
+            removerAcentos(cliente.nome?.toLowerCase()).includes(buscaNormalizada) ||
+            removerAcentos(cliente.numero_interno?.toLowerCase()).includes(buscaNormalizada) ||
+            removerAcentos(cliente.telefone?.toLowerCase()).includes(buscaNormalizada) ||
+            removerAcentos(cliente.email?.toLowerCase()).includes(buscaNormalizada)
+        )
+    })
 
     if (mostrarForm) {
         return <ClienteForm clienteId={clienteEditando?.id} onSave={handleSalvarCliente} onCancel={handleCancelarForm} />

@@ -39,6 +39,11 @@ function ReparacoesView() {
         fetchReparacoes()
     }, [fetchReparacoes])
 
+    function removerAcentos(str) {
+        if (!str) return ""
+        return str.normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+    }
+
     // Buscar alarmes ativos ao montar
     useEffect(() => {
         axios.get("http://localhost:8082/alarmes/resumo")
@@ -153,13 +158,14 @@ function ReparacoesView() {
 
     // Filtrar reparações com base na pesquisa e status
     const filteredReparacoes = useMemo(() => {
+        const buscaNormalizada = removerAcentos(searchTerm.toLowerCase())
         return reparacoes.filter((reparacao) => {
             const matchesSearch =
-                (reparacao.nomemaquina && reparacao.nomemaquina.toLowerCase().includes(searchTerm.toLowerCase())) ||
-                (reparacao.nomecentro && reparacao.nomecentro.toLowerCase().includes(searchTerm.toLowerCase())) ||
-                (reparacao.estadoreparacao && reparacao.estadoreparacao.toLowerCase().includes(searchTerm.toLowerCase())) ||
-                (reparacao.numreparacao && reparacao.numreparacao.toString().includes(searchTerm)) ||
-                (reparacao.cliente_nome && reparacao.cliente_nome.toLowerCase().includes(searchTerm.toLowerCase()))
+                removerAcentos(reparacao.nomemaquina?.toLowerCase()).includes(buscaNormalizada) ||
+                removerAcentos(reparacao.nomecentro?.toLowerCase()).includes(buscaNormalizada) ||
+                removerAcentos(reparacao.estadoreparacao?.toLowerCase()).includes(buscaNormalizada) ||
+                removerAcentos(reparacao.numreparacao?.toString()).includes(buscaNormalizada) ||
+                removerAcentos(reparacao.cliente_nome?.toLowerCase()).includes(buscaNormalizada)
 
             const matchesStatus = filterStatus === "all" || getStatus(reparacao) === filterStatus
 
@@ -201,37 +207,31 @@ function ReparacoesView() {
                 width: "140px",
             },
             {
-                name: "Alarme",
-                cell: (row) =>
-                    reparacoesComAlarme.has(row.id) ? (
-                        <i className="bi bi-bell-fill text-warning" title="Possui alarme"></i>
-                    ) : null,
-                width: "50px",
-                ignoreRowClick: true,
-            },
-            {
                 name: "Status",
                 cell: (row) => getStatusBadge(row),
                 sortable: true,
                 width: "120px",
             },
             {
-                name: "Nº de Reparação",
+                name: "Nº de Rep.",
                 selector: (row) => row.numreparacao || "-",
                 sortable: true,
                 wrap: true,
+                width: "120px",
             },
             {
                 name: "Máquina",
                 selector: (row) => row.nomemaquina || "-",
                 sortable: true,
                 wrap: true,
+                width: "150px",
             },
             {
                 name: "Centro",
                 selector: (row) => row.nomecentro || "-",
                 sortable: true,
                 wrap: true,
+                width: "150px",
             },
             {
                 name: "Data Entrada",
@@ -255,16 +255,25 @@ function ReparacoesView() {
                 width: "130px",
             },
             {
-                name: "Estado Reparação",
+                name: "Estado Rep.",
                 selector: (row) => row.estadoreparacao || "-",
                 sortable: true,
                 wrap: true,
+                width: "150px",
             },
             {
-                name: "Estado Orçamento",
+                name: "Estado Orç.",
                 selector: (row) => row.estadoorcamento || "-",
                 sortable: true,
                 wrap: true,
+                width: "150px",
+            },
+            {
+                name: "Cliente",
+                selector: (row) => row.cliente_nome || "-",
+                sortable: true,
+                wrap: true,
+                width: "200px",
             },
         ],
         [handleEdit, handleDelete, getStatusBadge, formatDate],
@@ -280,7 +289,7 @@ function ReparacoesView() {
         headRow: {
             style: {
                 borderTopStyle: "solid",
-                borderTopWidth: "1px",
+                borderTopWidth: "2px",
                 borderTopColor: "#e3e6ea",
                 backgroundColor: "#f8f9fa",
             },

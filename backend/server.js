@@ -5,6 +5,7 @@ const cors = require("cors")
 const PDFDocument = require("pdfkit")
 const fs = require("fs")
 const path = require("path")
+const { styleText } = require("util")
 
 const app = express()
 
@@ -77,7 +78,7 @@ async function generateRepairPDF(reparacaoId) {
                 COALESCE(observacao, '') as observacao
             FROM pecas_reparacao 
             WHERE reparacao_id = ?
-            ORDER BY tipopeca ASC`,
+            ORDER BY id ASC`,
             [reparacaoId],
         );
 
@@ -138,7 +139,12 @@ async function generateRepairPDF(reparacaoId) {
                 y += 20;
 
                 doc.fontSize(10).font("Helvetica")
-                    .text(`Reparação Nº: ${rep.numreparacao || rep.id}`, left, y)
+                    .text(`Reparação Nº: `, left, y, { continued: true })
+                    .font("Helvetica-Bold")
+                    .fontSize(11)
+                    .text(`${rep.numreparacao || rep.id}`, { continued: false, styleText: "italic" })
+                    .font("Helvetica")
+                    .fontSize(10)
                     .text(`Data: ${new Date(rep.dataentrega).toLocaleDateString("pt-PT")}`, 450, y);
                 y += 12;
                 textBlock(`Estado: ${rep.estadoorcamento || "N/A"}`, left);
@@ -978,8 +984,12 @@ app.get("/clientes/buscar", async (req, res) => {
         const searchTerm = `%${q}%`
         const [rows] = await pool.execute(
             `SELECT * FROM cliente
-        WHERE nome LIKE ? OR numero_interno LIKE ? OR telefone LIKE ? OR email LIKE ?
-       ORDER BY nome LIMIT 10`,
+            WHERE 
+                nome LIKE ? COLLATE utf8mb4_unicode_ci
+                OR numero_interno LIKE ? COLLATE utf8mb4_unicode_ci
+                OR telefone LIKE ? COLLATE utf8mb4_unicode_ci
+                OR email LIKE ? COLLATE utf8mb4_unicode_ci
+            ORDER BY nome LIMIT 10`,
             [searchTerm, searchTerm, searchTerm, searchTerm],
         )
         res.json(rows)
@@ -1424,7 +1434,7 @@ app.get("/reparacoes/:id/pecas", async (req, res) => {
                 COALESCE(existe_no_sistema, 0) as existe_no_sistema
             FROM pecas_reparacao
             WHERE reparacao_id = ?
-            ORDER BY tipopeca ASC
+            ORDER BY id ASC
         `, [id]);
 
         res.json(rows);

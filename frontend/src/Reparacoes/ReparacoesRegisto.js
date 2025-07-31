@@ -981,7 +981,7 @@ function ReparacoesRegisto() {
                                                             type="number"
                                                             className="form-control"
                                                             name="preco_unitario"
-                                                            value={novaPeca.preco_unitario === 0 ? "" : novaPeca.preco_unitario}
+                                                            value={novaPeca.preco_unitario}
                                                             onChange={handleNovaPecaChange}
                                                             min="0"
                                                             step="0.01"
