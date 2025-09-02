@@ -204,11 +204,11 @@ async function generateRepairPDF(reparacaoId) {
 
                 if (y > minY) {
                     doc.addPage();
-                    y = 50;
+                    y = 5;
                 }
 
                 // Posiciona bloco no rodapé (de forma visualmente fixa)
-                y = pageHeight - bottomMargin - totalBlockHeight + 1;
+                y = pageHeight - bottomMargin - totalBlockHeight - 15;
 
                 doc.fontSize(9).font("Helvetica")
                     .text(`Subtotal Peças: €${totalPecas.toFixed(2)}`, 440, y);
@@ -219,18 +219,27 @@ async function generateRepairPDF(reparacaoId) {
                     .text(`TOTAL: €${totalGeral.toFixed(2)}`, 440, y);
                 y += 20;
 
+                const alturaCondicoes = 60; // px aproximado para 5 linhas pequenas
+
+                // Se não houver espaço suficiente, cria nova página
+                if (y + alturaCondicoes > doc.page.height - doc.page.margins.bottom) {
+                    doc.addPage();
+                    y = doc.page.margins.top;
+                }
+
                 doc.fontSize(8).font("Helvetica-Bold").text("CONDIÇÕES:", left, y);
                 y += 10;
                 doc.fontSize(7).font("Helvetica");
-                [
+
+                const condicoes = [
                     "• Este orçamento é válido por 30 dias a partir da data de emissão.",
                     "• Preços sujeitos a IVA à taxa em vigor.",
                     "• A reparação só será iniciada após aprovação do orçamento.",
-                    "• Equipamento não levantado em 30 dias após o aviso, será considerado abandonado."
-                ].forEach(line => {
-                    doc.text(line, left, y, { width: 500 });
-                    y += 10;
-                });
+                    "• O equipamento que não for levantado 60 dias após a notificação da conclusão do trabalho fica sujeito a uma \"taxa de armazenagem\" que se fixa em 10€/dia + iva. Decorridos 6 meses consideram-se abandonados, pelo que não nos responsabilizamos pela sua identificação ou entrega.",
+                    "• A empresa não assegura serviços de assistência técnica (dentro ou fora de garantia) a produtos que não tenha colocado em circulação no mercado."
+                ].join('\n');
+
+                doc.text(condicoes, left, y, { width: 500, lineGap: 1 });
 
                 doc.end();
             } catch (err) {
@@ -1143,6 +1152,16 @@ app.post("/reparacoes", async (req, res) => {
     try {
         if (!dataentrega) {
             return res.status(400).json({ error: "Data de entrada é obrigatória" })
+        }
+
+        if (numreparacao) {
+            const [rows] = await pool.execute(
+                "SELECT id FROM reparacao WHERE numreparacao = ?",
+                [numreparacao]
+            );
+            if (rows.length > 0) {
+                return res.status(409).json({ error: "Já existe uma reparação com este número." });
+            }
         }
 
         // Aplicar toNull e conversões

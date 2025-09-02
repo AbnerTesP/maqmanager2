@@ -255,29 +255,6 @@ function ReparacoesEdit() {
         [centros],
     )
 
-    const handleReparacaoChange = useCallback(
-        (e) => {
-            const reparacaoId = e.target.value
-            const reparacaoSelecionada = reparacoes.find((r) => String(r.id) === String(reparacaoId))
-            const novoEstadoReparacao = reparacaoSelecionada ? reparacaoSelecionada.estado : ""
-            let novoEstadoOrcamento = form.estadoorcamento
-
-            if (novoEstadoReparacao?.toLowerCase().includes("concluída")) {
-                novoEstadoOrcamento = "Aceite"
-            } else {
-                novoEstadoReparacao = "Em reparação"
-
-            }
-
-            setForm((prev) => ({
-                ...prev,
-                estadoreparacao: novoEstadoReparacao,
-                estadoorcamento: novoEstadoOrcamento,
-            }))
-        },
-        [orcamentos, form.estadoorcamento],
-    )
-
     const handleOrcamentoChange = useCallback(
         (e) => {
             const orcamentoId = e.target.value
@@ -291,7 +268,11 @@ function ReparacoesEdit() {
                 novaDataConclusao = hoje
                 novoEstadoReparacao = "Sem reparação"
             } else {
-                novoEstadoReparacao = "Em reparação"
+                // Se o orçamento não for recusado, reverter para o estado original ou "Em reparação"
+                // Apenas se o estado atual for "Sem reparação" devido a um orçamento recusado anterior
+                if (form.estadoreparacao === "Sem reparação") {
+                    novoEstadoReparacao = "Em reparação" // Ou outro estado padrão
+                }
                 novaDataConclusao = ""
             }
 
@@ -304,6 +285,7 @@ function ReparacoesEdit() {
         },
         [orcamentos, form.estadoreparacao, form.dataconclusao],
     )
+
 
     const handleEstadoreparacaoChange = useCallback(
         (e) => {
@@ -318,24 +300,20 @@ function ReparacoesEdit() {
     )
 
     // Funções para gerenciar peças com desconto
-    const handleNovaPecaChange = useCallback((e) => {
-        const { name, value } = e.target
-        setNovaPeca((prev) => {
-            const updated = {
-                ...prev,
-                [name]: ["quantidade", "preco_unitario", "desconto_percentual"].includes(name)
-                    ? Number.parseFloat(value) || 0
-                    : value,
-            }
-
-            // Validação para desconto percentual
-            if (name === "desconto_percentual" && updated.desconto_percentual > 100) {
-                updated.desconto_percentual = 100
-            }
-
-            return updated
-        })
-    }, [])
+    const handleNovaPecaChange = (e) => {
+        const { name, value } = e.target;
+        let val = value;
+        if (name === "preco_unitario" || name === "desconto_unitario") {
+            val = val.replace(',', '.');
+            val = val === "" ? "" : Number.parseFloat(val);
+        } else if (["quantidade", "desconto_percentual"].includes(name)) {
+            val = val === "" ? "" : Number.parseFloat(val);
+        }
+        setNovaPeca((prev) => ({
+            ...prev,
+            [name]: val,
+        }));
+    };
 
     const verificarPecaExistente = useCallback(
         (tipopeca, marca) => {
@@ -359,7 +337,7 @@ function ReparacoesEdit() {
             return
         }
 
-        if (novaPeca.preco_unitario <= 0) {
+        if (novaPeca.preco_unitario < 0) {
             setErro("Preço unitário deve ser maior que zero.")
             return
         }
@@ -413,28 +391,28 @@ function ReparacoesEdit() {
         setPecasNecessarias((prev) =>
             prev.map((peca) => {
                 if (peca.id === pecaId) {
-                    const novaPeca = { ...peca, [campo]: valor }
+                    const novaPeca = { ...peca, [campo]: valor };
 
                     // Validações
-                    if (campo === "desconto_percentual" && novaPeca.desconto_percentual > 100) {
-                        novaPeca.desconto_percentual = 100
+                    if (campo === "desconto_percentual" && Number(novaPeca.desconto_percentual) > 100) {
+                        novaPeca.desconto_percentual = "100";
                     }
 
-                    // Recalcular preços sempre com desconto percentual
-                    const precoUnitario = Number(novaPeca.preco_unitario) || 0
-                    const quantidade = Number(novaPeca.quantidade) || 1
-                    const descontoPercentual = Number(novaPeca.desconto_percentual) || 0
-                    const descontoUnitario = precoUnitario * (descontoPercentual / 100)
+                    // Sempre converte para número na hora do cálculo
+                    const precoUnitario = parseFloat(novaPeca.preco_unitario?.toString().replace(',', '.')) || 0;
+                    const quantidade = parseFloat(novaPeca.quantidade) || 1;
+                    const descontoPercentual = parseFloat(novaPeca.desconto_percentual) || 0;
+                    const descontoUnitario = precoUnitario * (descontoPercentual / 100);
 
-                    novaPeca.preco_com_desconto = Math.max(0, precoUnitario - descontoUnitario)
-                    novaPeca.preco_total = quantidade * novaPeca.preco_com_desconto
+                    novaPeca.preco_com_desconto = Math.max(0, precoUnitario - descontoUnitario);
+                    novaPeca.preco_total = quantidade * novaPeca.preco_com_desconto;
 
-                    return novaPeca
+                    return novaPeca;
                 }
-                return peca
+                return peca;
             }),
-        )
-    }, [])
+        );
+    }, []);
 
     const buscarPecasSimilares = useCallback(
         (tipopeca) => {
@@ -448,6 +426,16 @@ function ReparacoesEdit() {
 
     const validateForm = useCallback(() => {
         const errors = {}
+
+        if (!form.numreparacao.trim()) {
+            errors.numreparacao = "Número de reparação é obrigatório";
+        } else {
+            const duplicado = reparacoes.some((r) => r.numreparacao && r.numreparacao.trim().toLowerCase() === form.numreparacao.trim().toLowerCase() && String(r.id !== String(form.id))
+            );
+            if (duplicado) {
+                errors.numreparacao = "Número de reparação já existe";
+            }
+        }
 
         if (!form.dataentrega) {
             errors.dataentrega = "Data de entrada é obrigatória"
@@ -480,7 +468,7 @@ function ReparacoesEdit() {
 
         setValidationErrors(errors)
         return Object.keys(errors).length === 0
-    }, [form])
+    }, [form, reparacoes, id])
 
     const hasChanges = useCallback(() => {
         const formChanged = JSON.stringify(form) !== JSON.stringify(originalForm)
@@ -795,12 +783,15 @@ function ReparacoesEdit() {
                                             </label>
                                             <input
                                                 type="text"
-                                                className="form-control"
+                                                className={`form-control ${validationErrors.numreparacao ? "is-invalid" : ""}`}
                                                 name="numreparacao"
                                                 value={form.numreparacao || ""}
                                                 onChange={handleChange}
                                                 placeholder="Ex: REP-2023-001"
                                             />
+                                            {validationErrors.numreparacao && (
+                                                <div className="invalid-feedback">{validationErrors.numreparacao}</div>
+                                            )}
                                         </div>
                                         <div className="mb-3">
                                             <label className="form-label">
@@ -890,7 +881,7 @@ function ReparacoesEdit() {
                                             </label>
                                             <select
                                                 className={`form-select ${validationErrors.estadoreparacao ? "is-invalid" : ""}`}
-                                                onChange={handleReparacaoChange}
+                                                onChange={handleEstadoreparacaoChange}
                                                 value={reparacoes.find((r) => r.estado === form.estadoreparacao)?.id || ""}
                                             >
                                                 <option value="">Selecione o estado da Reparação</option>
@@ -1164,13 +1155,15 @@ function ReparacoesEdit() {
                                                                     type="number"
                                                                     className="form-control"
                                                                     name="preco_unitario"
-                                                                    value={novaPeca.preco_unitario === 0 ? "" : novaPeca.preco_unitario}
+                                                                    value={novaPeca.preco_unitario}
                                                                     onChange={(e) => {
-                                                                        const value = e.target.value
+                                                                        let value = e.target.value;
+                                                                        // Troca vírgula por ponto para aceitar ambos
+                                                                        value = value.replace(',', '.');
                                                                         setNovaPeca((prev) => ({
                                                                             ...prev,
-                                                                            preco_unitario: value === "" ? 0 : Number.parseFloat(value) || 0,
-                                                                        }))
+                                                                            preco_unitario: value === "" ? "" : Number.parseFloat(value),
+                                                                        }));
                                                                     }}
                                                                     min="0"
                                                                     step="0.01"
@@ -1198,7 +1191,7 @@ function ReparacoesEdit() {
                                                                         className={`btn w-100 d-flex align-items-center justify-content-center ${!novaPeca.tipopeca ||
                                                                             !novaPeca.marca ||
                                                                             novaPeca.quantidade < 1 ||
-                                                                            novaPeca.preco_unitario <= 0
+                                                                            novaPeca.preco_unitario < 0
                                                                             ? "btn-outline-secondary"
                                                                             : "btn-success"
                                                                             }`}
@@ -1207,7 +1200,7 @@ function ReparacoesEdit() {
                                                                             !novaPeca.tipopeca ||
                                                                             !novaPeca.marca ||
                                                                             novaPeca.quantidade < 1 ||
-                                                                            novaPeca.preco_unitario <= 0
+                                                                            novaPeca.preco_unitario < 0
                                                                         }
                                                                         style={{
                                                                             transition: "all 0.3s ease",
@@ -1215,7 +1208,7 @@ function ReparacoesEdit() {
                                                                                 !novaPeca.tipopeca ||
                                                                                     !novaPeca.marca ||
                                                                                     novaPeca.quantidade < 1 ||
-                                                                                    novaPeca.preco_unitario <= 0
+                                                                                    novaPeca.preco_unitario < 0
                                                                                     ? "scale(0.95)"
                                                                                     : "scale(1)",
                                                                         }}
@@ -1380,18 +1373,19 @@ function ReparacoesEdit() {
                                                                                     </td>
                                                                                     <td>
                                                                                         <input
-                                                                                            type="number"
+                                                                                            type="text"
                                                                                             className="form-control form-control-sm text-center"
-                                                                                            value={peca.preco_unitario}
-                                                                                            onChange={(e) =>
+                                                                                            value={peca.preco_unitario === 0 ? "" : String(peca.preco_unitario)}
+                                                                                            onChange={(e) => {
+                                                                                                // Permite ponto ou vírgula como separador decimal
+                                                                                                let valor = e.target.value.replace(',', '.');
+                                                                                                // Permite campo vazio para edição
                                                                                                 atualizarPeca(
                                                                                                     peca.id,
                                                                                                     "preco_unitario",
-                                                                                                    Number.parseFloat(e.target.value) || 0,
-                                                                                                )
-                                                                                            }
-                                                                                            min="0"
-                                                                                            step="0.01"
+                                                                                                    valor // Salva como string para edição
+                                                                                                );
+                                                                                            }}
                                                                                             style={{ width: "80px" }}
                                                                                         />
                                                                                     </td>

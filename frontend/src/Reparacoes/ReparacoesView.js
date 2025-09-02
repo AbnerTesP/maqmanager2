@@ -739,7 +739,6 @@ function ReparacoesView() {
                                 <i className="bi bi-currency-euro fs-2 mb-2"></i>
                                 <h6 className="mb-1">TOTAL GERAL</h6>
                                 <h3 className="mb-0">{formatCurrency(calcularTotais.totalGeral)}</h3>
-                                <small>IVA incluído</small>
                             </div>
                         </div>
                     </div>

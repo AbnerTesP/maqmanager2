@@ -33,6 +33,7 @@ function ReparacoesRegisto() {
     const [pecaEditavel, setPecaEditavel] = useState(null);
     const [clienteSelecionado, setClienteSelecionado] = useState("")
     const [pecasNecessarias, setPecasNecessarias] = useState([])
+    const [validationErrors, setValidationErrors] = useState({})
     const novaPecaInicial = {
         tipopeca: "",
         marca: "",
@@ -93,7 +94,8 @@ function ReparacoesRegisto() {
         const orcamentoAceito =
             form.estadoorcamento &&
             (form.estadoorcamento.toLowerCase().includes("em processo") ||
-                form.estadoorcamento.toLowerCase().includes("aceite"))
+                form.estadoorcamento.toLowerCase().includes("aceite")) ||
+            form.estadoorcamento.toLowerCase().includes("concluído");
         setMostrarPecas(orcamentoAceito)
         if (!orcamentoAceito) setPecasNecessarias([])
     }, [form.estadoorcamento])
@@ -442,24 +444,37 @@ function ReparacoesRegisto() {
     )
 
     const validarFormulario = useCallback(() => {
+        const errors = {};
+
+        if (!form.numreparacao.trim()) {
+            errors.numreparacao = "O número de reparação é obrigatório.";
+        } else {
+            // Verifica duplicidade (ignora espaços e compara como string)
+            const existeDuplicado = reparacoes.some(
+                (r) =>
+                    String(r.numreparacao).trim() === form.numreparacao.trim()
+            );
+            if (existeDuplicado) {
+                errors.numreparacao = "Já existe uma reparação com este número.";
+            }
+        }
+
         if (!form.dataentrega) {
-            setErro("A data de entrada é obrigatória.")
-            return false
+            errors.dataentrega = "A data de entrada é obrigatória.";
         }
         if (form.dataconclusao && new Date(form.dataconclusao) < new Date(form.dataentrega)) {
-            setErro("A data de conclusão deve ser posterior à data de entrada.")
-            return false
+            errors.dataconclusao = "A data de conclusão deve ser posterior à data de entrada.";
         }
         if (form.datasaida && form.dataconclusao && new Date(form.datasaida) < new Date(form.dataconclusao)) {
-            setErro("A data de saída deve ser posterior à data de conclusão.")
-            return false
+            errors.datasaida = "A data de saída deve ser posterior à data de conclusão.";
         }
         if (!form.estadoreparacao || !form.nomemaquina || !form.cliente_id) {
-            setErro("Todos os campos obrigatórios devem ser preenchidos (incluindo cliente).")
-            return false
+            errors.campos = "Todos os campos obrigatórios devem ser preenchidos (incluindo cliente).";
         }
-        return true
-    }, [form])
+
+        setValidationErrors(errors);
+        return Object.keys(errors).length === 0;
+    }, [form, reparacoes]);
 
     const handleSubmit = useCallback(
         (e) => {
@@ -651,13 +666,17 @@ function ReparacoesRegisto() {
                                                 Número da Reparação
                                             </label>
                                             <input
-                                                type="number"
-                                                className="form-control"
+                                                type="text"
+                                                className={`form-control ${validationErrors.numreparacao ? "is-invalid" : ""}`}
                                                 name="numreparacao"
-                                                value={form.numreparacao}
+                                                value={form.numreparacao || ""}
                                                 onChange={handleChange}
                                                 placeholder="Ex: 12345"
+                                                autoComplete="off"
                                             />
+                                            {validationErrors.numreparacao && (
+                                                <div className="invalid-feedback">{validationErrors.numreparacao}</div>
+                                            )}
                                         </div>
 
                                         <div className="mb-3">
@@ -755,6 +774,7 @@ function ReparacoesRegisto() {
                                                         {rep.estado}
                                                     </option>
                                                 ))}
+
                                             </select>
                                         </div>
                                     </div>
