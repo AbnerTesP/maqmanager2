@@ -64,6 +64,7 @@ async function generateRepairPDF(reparacaoId) {
             [reparacaoId],
         );
 
+
         if (reparacao.length === 0) throw new Error("Reparação não encontrada");
 
         const rep = reparacao[0];
@@ -84,7 +85,10 @@ async function generateRepairPDF(reparacaoId) {
 
         console.log(`📦 Encontradas ${pecas.length} peças`);
 
-        const doc = new PDFDocument({ margin: 50, size: "A4" });
+        const doc = new PDFDocument({
+            margin: 0, size: "A4",
+            margins: { top: 40, bottom: 80, left: 60, right: 60 }
+        });
         const chunks = [];
         doc.on("data", chunk => chunks.push(chunk));
 
@@ -191,6 +195,8 @@ async function generateRepairPDF(reparacaoId) {
 
                     totalPecas += total;
                     y += 12;
+
+                    doc.moveTo(col.d, y - 2).lineTo(550, y - 2).dash(1, { space: 2 }).strokeColor("#cccccc").stroke().undash().strokeColor("black");
                 });
 
                 const maoObra = Number(rep.mao_obra) || 0;
@@ -208,18 +214,31 @@ async function generateRepairPDF(reparacaoId) {
                 }
 
                 // Posiciona bloco no rodapé (de forma visualmente fixa)
-                y = pageHeight - bottomMargin - totalBlockHeight - 15;
+                y = pageHeight - bottomMargin - totalBlockHeight - 80;
 
                 doc.fontSize(9).font("Helvetica")
-                    .text(`Subtotal Peças: €${totalPecas.toFixed(2)}`, 440, y);
+                    .text(`Subtotal Peças: ${totalPecas.toFixed(2)}€`, 420, y);
                 y += 14;
-                doc.text(`Mão de Obra: €${maoObra.toFixed(2)}`, 440, y);
+                doc.text(`Mão de Obra: ${maoObra.toFixed(2)}€`, 420, y);
                 y += 14;
-                doc.fontSize(12).font("Helvetica-Bold")
-                    .text(`TOTAL: €${totalGeral.toFixed(2)}`, 440, y);
-                y += 20;
+                doc.fontSize(13).font("Helvetica-Bold")
+                    .text(`Valor liquido: ${totalGeral.toFixed(2)}€`, 420, y);
+                y += 18;
 
-                const alturaCondicoes = 60; // px aproximado para 5 linhas pequenas
+                const valorIva = totalGeral * 0.23;
+                const totalComIva = totalGeral + valorIva;
+                doc.fontSize(11).font("Helvetica-Bold")
+                    .fillColor("#198754")
+                    .text(`IVA (23%): ${valorIva.toFixed(2)}€`, 420, y);
+                doc.fillColor("black");
+                y += 14;
+                doc.fontSize(13).font("Helvetica-Bold")
+                    .fillColor("#0d6efd")
+                    .text(`TOTAL c/ IVA: ${totalComIva.toFixed(2)}€`, 420, y);
+                doc.fillColor("black");
+                y += 18;
+
+                const alturaCondicoes = 50; // px aproximado para 5 linhas pequenas
 
                 // Se não houver espaço suficiente, cria nova página
                 if (y + alturaCondicoes > doc.page.height - doc.page.margins.bottom) {
@@ -233,13 +252,12 @@ async function generateRepairPDF(reparacaoId) {
 
                 const condicoes = [
                     "• Este orçamento é válido por 30 dias a partir da data de emissão.",
-                    "• Preços sujeitos a IVA à taxa em vigor.",
                     "• A reparação só será iniciada após aprovação do orçamento.",
                     "• O equipamento que não for levantado 60 dias após a notificação da conclusão do trabalho fica sujeito a uma \"taxa de armazenagem\" que se fixa em 10€/dia + iva. Decorridos 6 meses consideram-se abandonados, pelo que não nos responsabilizamos pela sua identificação ou entrega.",
                     "• A empresa não assegura serviços de assistência técnica (dentro ou fora de garantia) a produtos que não tenha colocado em circulação no mercado."
                 ].join('\n');
 
-                doc.text(condicoes, left, y, { width: 500, lineGap: 1 });
+                doc.text(condicoes, left, y, { width: 400, lineGap: 1 });
 
                 doc.end();
             } catch (err) {

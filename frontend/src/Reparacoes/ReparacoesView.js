@@ -306,6 +306,8 @@ function ReparacoesView() {
         }
 
         const totalGeral = subtotal - valorDesconto
+        const valorIva = Math.max(0, totalGeral) * 0.23
+        const totalComIva = Math.max(0, totalGeral) + valorIva
 
         return {
             maoObraGeral,
@@ -317,6 +319,8 @@ function ReparacoesView() {
             tipoDesconto,
             valorDesconto,
             totalGeral: Math.max(0, totalGeral),
+            totalComIva: Number(totalComIva.toFixed(2)), // Arredonda para 2 casas decimais
+            valorIva: Number(valorIva.toFixed(2)), // Arredonda para 2 casas decimais
         }
     }, [view, reparacao, pecas])
 
@@ -741,6 +745,13 @@ function ReparacoesView() {
                                 <h3 className="mb-0">{formatCurrency(calcularTotais.totalGeral)}</h3>
                             </div>
                         </div>
+                        <div className="col-md-3">
+                            <div className="text-center p-3 bg-dark text-white rounded">
+                                <i className="bi bi-currency-euro fs-2 mb-2"></i>
+                                <h6 className="mb-1">Total com IVA (23%)</h6>
+                                <h3 className="mb-0">{formatCurrency(calcularTotais.totalComIva)}</h3>
+                            </div>
+                        </div>
                     </div>
 
                     {/* Detalhamento do Orçamento */}
@@ -795,10 +806,19 @@ function ReparacoesView() {
                                         <tr className="border-top bg-success text-white">
                                             <td className="fw-bold fs-5">
                                                 <i className="bi bi-currency-euro me-2"></i>
-                                                TOTAL GERAL
+                                                Total Geral
                                             </td>
                                             <td className="text-end fw-bold fs-5">
                                                 {formatCurrency(calcularTotais.totalGeral)}
+                                            </td>
+                                        </tr>
+                                        <tr className="border-top bg-success text-white">
+                                            <td className="fw-bold fs-5" colSpan={1}>
+                                                <i className="bi bi-currency-euro me-2"></i>
+                                                Total com IVA
+                                            </td>
+                                            <td className="text-end fw-bold  fs-5">
+                                                {formatCurrency(calcularTotais.totalComIva)}
                                             </td>
                                         </tr>
                                     </tbody>

@@ -95,6 +95,14 @@ function ReparacoesEdit() {
         return Math.max(0, totalPecas + (valorMaoObra - valorDesconto))
     }, [totalPecas, valorMaoObra, valorDesconto])
 
+    const valorIva = useMemo(() => {
+        return Math.max(0, totalGeral) * 0.23
+    }, [totalGeral])
+
+    const totalComIva = useMemo(() => {
+        return Math.max(0, totalGeral) + valorIva;
+    }, [totalGeral]);
+
     // Função para calcular preço com desconto de uma peça
     const calcularPrecoComDesconto = useCallback((peca) => {
         const precoUnitario = Number(peca.preco_unitario) || 0
@@ -427,10 +435,14 @@ function ReparacoesEdit() {
     const validateForm = useCallback(() => {
         const errors = {}
 
-        if (!form.numreparacao.trim()) {
+        if (!String(form.numreparacao).trim()) {
             errors.numreparacao = "Número de reparação é obrigatório";
         } else {
-            const duplicado = reparacoes.some((r) => r.numreparacao && r.numreparacao.trim().toLowerCase() === form.numreparacao.trim().toLowerCase() && String(r.id !== String(form.id))
+            const duplicado = reparacoes.some(
+                (r) =>
+                    r.numreparacao &&
+                    String(r.numreparacao).trim().toLowerCase() === String(form.numreparacao).trim().toLowerCase() &&
+                    String(r.id) !== String(form.id) // compara os IDs corretamente
             );
             if (duplicado) {
                 errors.numreparacao = "Número de reparação já existe";
@@ -1052,8 +1064,13 @@ function ReparacoesEdit() {
                                                     <div className="col-4">
                                                         <div className="h5 mb-0 text-success">{totalGeral.toFixed(2)}€</div>
                                                         <small className="text-muted">Total</small>
+                                                        <div className="col-12">
+                                                            <div className="h5 mb-0 text-danger">{totalComIva.toFixed(2)}€</div>
+                                                            <small className="text-muted">Inclui IVA a 23%</small>
+                                                        </div>
                                                     </div>
                                                 </div>
+
                                                 {(valorDesconto > 0 || totalDescontosPecas > 0) && (
                                                     <div className="mt-2 text-center">
                                                         {totalDescontosPecas > 0 && (
