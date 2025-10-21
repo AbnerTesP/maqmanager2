@@ -808,7 +808,7 @@ app.get("/alarmes/resumo", async (req, res) => {
       JOIN reparacao r ON alarmes_calculados.id = r.id
       WHERE tipo_alarme IS NOT NULL
       ORDER BY dias_alerta DESC
-      LIMIT 20
+      LIMIT 99
     `
 
         const [rows] = await pool.execute(sql)

@@ -479,13 +479,13 @@ function ReparacoesView() {
             },
             {
                 name: "Observações",
-                selector: (row) => row.observacao || "",
-                cell: (row) => (
+                selector: (peca) => peca.observacao || "",
+                cell: (peca) => (
                     <div className="text-wrap" style={{ maxWidth: "200px" }}>
-                        {row.observacao ? (
+                        {peca.observacao ? (
                             <small className="text-muted">
                                 <i className="bi bi-chat-text me-1"></i>
-                                {row.observacao}
+                                {peca.observacao}
                             </small>
                         ) : (
                             <small className="text-muted fst-italic">Sem observações</small>

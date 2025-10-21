@@ -48,7 +48,10 @@ function ReparacoesView() {
     useEffect(() => {
         axios.get("http://localhost:8082/alarmes/resumo")
             .then(res => setAlarmes(res.data.alarmes || []))
-            .catch(() => setAlarmes([]))
+            .catch((err) => {
+                console.error("Erro ao buscar alarmes:", err);
+                setAlarmes([]);
+            });
     }, [])
 
     const handleView = useCallback(

@@ -1,10 +1,14 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Link, useLocation } from 'react-router-dom';
+
 
 const NavigationBar = () => {
     const location = useLocation();
     const [isMenuOpen, setIsMenuOpen] = useState(false);
     const [totalAlarmes, setTotalAlarmes] = useState(0);
+
+    const badgeRef = useRef(null);
+    const prevTotalRef = useRef(totalAlarmes);
 
     useEffect(() => {
         const carregarTotalAlarmes = async () => {
@@ -22,6 +26,37 @@ const NavigationBar = () => {
         const interval = setInterval(carregarTotalAlarmes, 2 * 60 * 1000);
         return () => clearInterval(interval);
     }, []);
+
+    // animação quando totalAlarmes muda (usa import dinâmico para evitar erros de export)
+    useEffect(() => {
+        let mounted = true;
+
+        async function runAnimation() {
+            if (prevTotalRef.current !== totalAlarmes) {
+                // só animar quando o badge existe e houver um valor (evita animar de/para 0)
+                if (badgeRef.current && totalAlarmes > 0) {
+                    try {
+                        const mod = await import('animejs');
+                        const anime = mod && (mod.default || mod);
+                        if (!mounted) return;
+                        anime({
+                            targets: badgeRef.current,
+                            scale: [1, 1.35, 1],
+                            duration: 600,
+                            easing: 'easeOutElastic(1, .6)',
+                        });
+                    } catch (e) {
+                        // falha ao carregar animejs — logar e continuar sem animação
+                        console.error("Falha ao carregar animejs:", e);
+                    }
+                }
+                prevTotalRef.current = totalAlarmes;
+            }
+        }
+
+        runAnimation();
+        return () => { mounted = false; }
+    }, [totalAlarmes]);
 
     // Esconder navbar em login/registro
     const hideNavBar = location.pathname === '/login' || location.pathname === '/registro';
@@ -55,11 +90,14 @@ const NavigationBar = () => {
                         <li className={`nav-item${location.pathname.startsWith('/alarmes') ? ' active' : ''} position-relative`}>
                             {totalAlarmes > 0 && (
                                 <span
+                                    ref={badgeRef}
                                     style={{
+                                        display: "inline-block",
                                         position: "absolute",
                                         top: "-10px",
                                         left: "90%",
                                         transform: "translateX(-50%)",
+                                        transformOrigin: "center",
                                         background: "#dc3545",
                                         color: "#fff",
                                         borderRadius: "10px",

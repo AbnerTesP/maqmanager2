@@ -1,12 +1,10 @@
 "use client"
 
-import { useState, useEffect, useCallback, useMemo } from "react"
+import { useState, useEffect, useCallback, useMemo, useRef } from "react"
 import ReactModal from 'react-modal';
 import axios from "axios"
 import { useNavigate } from "react-router-dom"
 import ClienteForm from "../components/ClienteForm"
-import "bootstrap/dist/css/bootstrap.min.css"
-import "bootstrap-icons/font/bootstrap-icons.css"
 
 function ReparacoesRegisto() {
     const [form, setForm] = useState({
@@ -110,6 +108,8 @@ function ReparacoesRegisto() {
         return calcularPrecoComDesconto(peca) * peca.quantidade;
     };
 
+    const tipoPecaInputRef = useRef(null);
+
     const iniciarEdicaoPeca = (peca) => {
         setPecaEditavel(peca);
         setNovaPeca({
@@ -128,6 +128,11 @@ function ReparacoesRegisto() {
     const cancelarEdicao = () => {
         setPecaEditavel(null);
         setNovaPeca(novaPecaInicial);
+
+        if (tipoPecaInputRef.current) {
+            tipoPecaInputRef.current.focus();
+            tipoPecaInputRef.current.select();
+        }
     };
 
     const atualizarPeca = () => {
@@ -391,6 +396,13 @@ function ReparacoesRegisto() {
         setPecasNecessarias((prev) => [...prev, novaPecaCompleta]);
         setNovaPeca(novaPecaInicial);
         setErro("");
+
+        setTimeout(() => {
+            if (tipoPecaInputRef.current) {
+                tipoPecaInputRef.current.focus();
+                tipoPecaInputRef.current.select();
+            }
+        }, 0);
     }, [novaPeca, pecasNecessarias, verificarPecaExistente, calcularPrecoComDesconto, novaPecaInicial]);
 
     const removerPeca = useCallback((id) => {
@@ -958,6 +970,7 @@ function ReparacoesRegisto() {
                                                             onChange={handleNovaPecaChange}
                                                             placeholder="Ex: Filtro, Correia, Pistão..."
                                                             list="pecas-sugestoes"
+                                                            ref={tipoPecaInputRef}
                                                         />
                                                         {pecasSimilares.length > 0 && (
                                                             <datalist id="pecas-sugestoes">

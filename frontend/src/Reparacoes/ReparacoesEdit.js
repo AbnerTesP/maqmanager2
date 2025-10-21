@@ -43,7 +43,7 @@ function ReparacoesEdit() {
         preco_unitario: 0,
         desconto_percentual: 0,
         tipo_desconto: "percentual", // Fixo em percentual
-        observacoes: "",
+        observacao: "",
     })
     const [pecasExistentes, setPecasExistentes] = useState([])
     const [mostrarPecas, setMostrarPecas] = useState(false)
@@ -421,6 +421,13 @@ function ReparacoesEdit() {
             }),
         );
     }, []);
+
+    const iniciarEdicaoPeca = useCallback((peca) => {
+        setNovaPeca({ ...peca })
+        removerPeca(peca.id)
+        setErro("")
+    }, [removerPeca])
+
 
     const buscarPecasSimilares = useCallback(
         (tipopeca) => {
@@ -1270,8 +1277,8 @@ function ReparacoesEdit() {
                                                                 <input
                                                                     type="text"
                                                                     className="form-control"
-                                                                    name="observacoes"
-                                                                    value={novaPeca.observacoes}
+                                                                    name="observacao"
+                                                                    value={novaPeca.observacao}
                                                                     onChange={handleNovaPecaChange}
                                                                     placeholder="Observações adicionais sobre a peça..."
                                                                 />
@@ -1323,12 +1330,12 @@ function ReparacoesEdit() {
                                                 </div>
 
                                                 {/* Lista de Peças Adicionadas */}
-                                                {pecasNecessarias.length > 0 ? (
+                                                {pecasNecessarias.length > 0 && (
                                                     <div className="card">
                                                         <div className="card-header bg-light">
                                                             <h6 className="mb-0">
                                                                 <i className="bi bi-list-check me-2"></i>
-                                                                Peças da Reparação ({pecasNecessarias.length})
+                                                                Peças Adicionadas ({pecasNecessarias.length})
                                                             </h6>
                                                         </div>
                                                         <div className="card-body">
@@ -1336,171 +1343,106 @@ function ReparacoesEdit() {
                                                                 <table className="table table-hover">
                                                                     <thead>
                                                                         <tr>
-                                                                            <th style={{ width: "25%" }}>Tipo de Peça</th>
-                                                                            <th style={{ width: "10%" }}>Ref. Interna</th>
-                                                                            <th className="text-center">Qtd</th>
-                                                                            <th className="text-center">Preço Unit. (€)</th>
-                                                                            <th className="text-center">Desconto</th>
-                                                                            <th className="text-center">Preço Final (€)</th>
-                                                                            <th className="text-center">Total (€)</th>
-                                                                            <th className="text-center">Ações</th>
+                                                                            <th>Tipo de Peça</th>
+                                                                            <th>Marca</th>
+                                                                            <th>Qtd</th>
+                                                                            <th>Preço Unit.</th>
+                                                                            <th>Desconto</th>
+                                                                            <th>Preço c/ Desc.</th>
+                                                                            <th>Total</th>
+                                                                            <th>Observações</th>
+                                                                            <th>Status</th>
+                                                                            <th>Ações</th>
                                                                         </tr>
                                                                     </thead>
                                                                     <tbody>
-                                                                        {pecasNecessarias.map((peca) => {
-                                                                            const precoComDesconto = calcularPrecoComDesconto(peca)
-                                                                            const economia = peca.preco_unitario - precoComDesconto
-                                                                            return (
-                                                                                <tr key={peca.id}>
-                                                                                    {/* Tipo de Peça */}
-                                                                                    <td>
-                                                                                        <div className="d-flex align-items-center">
-                                                                                            <input
-                                                                                                type="text"
-                                                                                                className="form-control form-control-sm"
-                                                                                                value={peca.tipopeca}
-                                                                                                onChange={(e) => atualizarPeca(peca.id, "tipopeca", e.target.value)}
-                                                                                            />
-                                                                                            {peca.isNew && <span className="badge bg-primary ms-1">Nova</span>}
-                                                                                        </div>
-                                                                                    </td>
-                                                                                    <td>
-                                                                                        <input
-                                                                                            type="text"
-                                                                                            className="form-control form-control-sm"
-                                                                                            value={peca.marca}
-                                                                                            onChange={(e) => atualizarPeca(peca.id, "marca", e.target.value)}
-                                                                                        />
-                                                                                    </td>
-                                                                                    <td>
-                                                                                        <input
-                                                                                            type="number"
-                                                                                            className="form-control form-control-sm text-center"
-                                                                                            value={peca.quantidade}
-                                                                                            onChange={(e) =>
-                                                                                                atualizarPeca(
-                                                                                                    peca.id,
-                                                                                                    "quantidade",
-                                                                                                    Number.parseFloat(e.target.value) || 1,
-                                                                                                )
-                                                                                            }
-                                                                                            min="1"
-                                                                                            style={{ width: "60px" }}
-                                                                                        />
-                                                                                    </td>
-                                                                                    <td>
-                                                                                        <input
-                                                                                            type="text"
-                                                                                            className="form-control form-control-sm text-center"
-                                                                                            value={peca.preco_unitario === 0 ? "" : String(peca.preco_unitario)}
-                                                                                            onChange={(e) => {
-                                                                                                // Permite ponto ou vírgula como separador decimal
-                                                                                                let valor = e.target.value.replace(',', '.');
-                                                                                                // Permite campo vazio para edição
-                                                                                                atualizarPeca(
-                                                                                                    peca.id,
-                                                                                                    "preco_unitario",
-                                                                                                    valor // Salva como string para edição
-                                                                                                );
-                                                                                            }}
-                                                                                            style={{ width: "80px" }}
-                                                                                        />
-                                                                                    </td>
-                                                                                    <td>
-                                                                                        <div className="d-flex align-items-center justify-content-center gap-1">
-                                                                                            <input
-                                                                                                type="number"
-                                                                                                className="form-control form-control-sm text-center"
-                                                                                                value={peca.desconto_percentual === 0 ? "" : peca.desconto_percentual}
-                                                                                                onChange={(e) => {
-                                                                                                    const value = e.target.value
-                                                                                                    const parsed = Number.parseFloat(value) || 0
-                                                                                                    const limited = parsed > 100 ? 100 : parsed
-                                                                                                    atualizarPeca(
-                                                                                                        peca.id,
-                                                                                                        "desconto_percentual",
-                                                                                                        value === "" ? 0 : limited,
-                                                                                                    )
-                                                                                                }}
-                                                                                                min="0"
-                                                                                                max="100"
-                                                                                                step="0.01"
-                                                                                                style={{ width: "60px" }}
-                                                                                                onWheel={(e) => e.currentTarget.blur()}
-                                                                                                placeholder="0"
-                                                                                            />
-                                                                                            <span className="text-muted">%</span>
-                                                                                        </div>
-                                                                                        {economia > 0 && (
-                                                                                            <small className="text-success d-block text-center">
-                                                                                                <i className="bi bi-tag-fill me-1"></i>
-                                                                                                {`${peca.desconto_percentual}%`}
-                                                                                            </small>
-                                                                                        )}
-                                                                                    </td>
-                                                                                    <td className="text-center">
-                                                                                        <strong className={economia > 0 ? "text-success" : "text-primary"}>
-                                                                                            {precoComDesconto.toFixed(2)}€
-                                                                                        </strong>
-                                                                                        {economia > 0 && (
-                                                                                            <div>
-                                                                                                <small className="text-muted text-decoration-line-through">
-                                                                                                    {peca.preco_unitario.toFixed(2)}€
-                                                                                                </small>
+                                                                        {pecasNecessarias
+                                                                            .sort((a, b) => a.id - b.id)
+                                                                            .map((peca) => {
+                                                                                const precoComDesconto = peca.preco_com_desconto || peca.preco_unitario;
+                                                                                const totalItem = precoComDesconto * peca.quantidade;
+
+                                                                                return (
+                                                                                    <tr key={peca.id}>
+                                                                                        <td>
+                                                                                            <strong>{peca.tipopeca}</strong>
+                                                                                        </td>
+                                                                                        <td>{peca.marca}</td>
+                                                                                        <td>
+                                                                                            <span className="badge bg-info">{peca.quantidade}</span>
+                                                                                        </td>
+                                                                                        <td>€{peca.preco_unitario.toFixed(2)}</td>
+                                                                                        <td>
+                                                                                            <td>
+                                                                                                {peca.desconto_percentual > 0 ? (
+                                                                                                    <>-{peca.desconto_percentual}%</>
+                                                                                                ) : (
+                                                                                                    <span className="text-muted">0%</span>
+                                                                                                )}
+                                                                                            </td>
+                                                                                        </td>
+                                                                                        <td>
+                                                                                            <span className="fw-bold">
+                                                                                                €{precoComDesconto.toFixed(2)}
+                                                                                            </span>
+                                                                                            {peca.preco_com_desconto < peca.preco_unitario && (
+                                                                                                <div>
+                                                                                                    <small className="text-success">
+                                                                                                        (Economia: €{(peca.preco_unitario - precoComDesconto).toFixed(2)})
+                                                                                                    </small>
+                                                                                                </div>
+                                                                                            )}
+                                                                                        </td>
+                                                                                        <td>
+                                                                                            <strong>€{totalItem.toFixed(2)}</strong>
+                                                                                        </td>
+                                                                                        <td>
+                                                                                            {peca.observacao ? (
+                                                                                                <span className="text-muted">{peca.observacao}</span>
+                                                                                            ) : (
+                                                                                                <span className="text-secondary">—</span>
+                                                                                            )}
+                                                                                        </td>
+                                                                                        <td>
+                                                                                            {peca.existeNoSistema ? (
+                                                                                                <span className="badge bg-success">
+                                                                                                    <i className="bi bi-check-circle me-1"></i>
+                                                                                                    Existe no Sistema
+                                                                                                </span>
+                                                                                            ) : (
+                                                                                                <span className="badge bg-warning">
+                                                                                                    <i className="bi bi-exclamation-circle me-1"></i>
+                                                                                                    Não Encontrada
+                                                                                                </span>
+                                                                                            )}
+                                                                                        </td>
+                                                                                        <td>
+                                                                                            <div className="btn-group">
+                                                                                                <button
+                                                                                                    type="button"
+                                                                                                    className="btn btn-outline-primary btn-sm"
+                                                                                                    onClick={() => iniciarEdicaoPeca(peca)}
+                                                                                                    title="Editar peça"
+                                                                                                >
+                                                                                                    <i className="bi bi-pencil"></i>
+                                                                                                </button>
+                                                                                                <button
+                                                                                                    type="button"
+                                                                                                    className="btn btn-outline-danger btn-sm"
+                                                                                                    onClick={() => removerPeca(peca.id)}
+                                                                                                    title="Remover peça"
+                                                                                                >
+                                                                                                    <i className="bi bi-trash"></i>
+                                                                                                </button>
                                                                                             </div>
-                                                                                        )}
-                                                                                    </td>
-                                                                                    <td className="text-center">
-                                                                                        <strong className="text-success">
-                                                                                            {peca.preco_total?.toFixed(2) || "0.00"}€
-                                                                                        </strong>
-                                                                                        {economia > 0 && (
-                                                                                            <div>
-                                                                                                <small className="text-success">
-                                                                                                    <i className="bi bi-arrow-down me-1"></i>-
-                                                                                                    {(economia * peca.quantidade).toFixed(2)}€
-                                                                                                </small>
-                                                                                            </div>
-                                                                                        )}
-                                                                                    </td>
-                                                                                    <td className="text-center">
-                                                                                        <button
-                                                                                            type="button"
-                                                                                            className="btn btn-outline-danger btn-sm"
-                                                                                            onClick={() => removerPeca(peca.id)}
-                                                                                            title="Remover peça"
-                                                                                        >
-                                                                                            <i className="bi bi-trash"></i>
-                                                                                        </button>
-                                                                                    </td>
-                                                                                </tr>
-                                                                            )
-                                                                        })}
+                                                                                        </td>
+                                                                                    </tr>
+                                                                                );
+                                                                            })}
                                                                     </tbody>
-                                                                    <tfoot>
-                                                                        <tr className="table-success">
-                                                                            <td colSpan="6" className="text-end fw-bold">
-                                                                                Total das Peças:
-                                                                            </td>
-                                                                            <td className="fw-bold text-success text-center">{totalPecas.toFixed(2)}€</td>
-                                                                            <td>
-                                                                                {totalDescontosPecas > 0 && (
-                                                                                    <small className="text-success">
-                                                                                        <i className="bi bi-piggy-bank me-1"></i>
-                                                                                        Economia: {totalDescontosPecas.toFixed(2)}€
-                                                                                    </small>
-                                                                                )}
-                                                                            </td>
-                                                                        </tr>
-                                                                    </tfoot>
                                                                 </table>
                                                             </div>
                                                         </div>
-                                                    </div>
-                                                ) : (
-                                                    <div className="alert alert-warning">
-                                                        <i className="bi bi-exclamation-triangle me-2"></i>
-                                                        Nenhuma peça adicionada. Adicione as peças necessárias para a reparação.
                                                     </div>
                                                 )}
                                             </>
