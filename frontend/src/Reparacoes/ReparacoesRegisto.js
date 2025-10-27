@@ -44,6 +44,8 @@ function ReparacoesRegisto() {
         observacao: "",
     };
 
+    const [showTextoRow, setShowTextoRow] = useState(false);
+    const [textoLinha, setTextoLinha] = useState("");
     const [novaPeca, setNovaPeca] = useState(novaPecaInicial);
     const [pecasExistentes, setPecasExistentes] = useState([])
     const [mostrarPecas, setMostrarPecas] = useState(false)
@@ -419,14 +421,45 @@ function ReparacoesRegisto() {
         [pecasExistentes],
     )
 
+    const adicionarLinhaTexto = useCallback(() => {
+        const texto = (textoLinha || "").trim();
+        if (!texto) return;
+
+        const nova = {
+            id: Date.now(),
+            is_text: 1,
+            texto,
+            // compatibilidade com a tabela/UX existente:
+            tipopeca: "",
+            marca: "",
+            quantidade: 0,
+            preco_com_desconto: 0,
+            desconto_unitario: 0,
+            desconto_percentual: 0,
+            tipo_desconto: "nenhum",
+            observacao: "",
+            ordem: pecasNecessarias.length + 1
+        };
+
+        setPecasNecessarias(prev => [...prev, nova]);
+        setTextoLinha("");
+        setShowTextoRow(false);
+
+        if (tipoPecaInputRef.current) {
+            tipoPecaInputRef.current.focus();
+            tipoPecaInputRef.current.select();
+        }
+    }, [textoLinha, pecasNecessarias.length]);
+
     const calcularTotais = useCallback(() => {
         let totalPecas = 0, totalDescontos = 0;
 
         // Cálculo das peças
         pecasNecessarias.forEach(peca => {
+            if (peca.is_text === 1 || peca.isText === true) return;
             const precoDesc = calcularPrecoComDesconto(peca);
-            totalPecas += precoDesc * peca.quantidade;
-            totalDescontos += (peca.preco_unitario - precoDesc) * peca.quantidade;
+            totalPecas += precoDesc * (peca.quantidade || 0);
+            totalDescontos += (peca.preco_unitario - precoDesc) * (peca.quantidade || 0);
         });
 
         // Aplicar desconto na mão de obra
@@ -496,13 +529,32 @@ function ReparacoesRegisto() {
             setLoading(true)
 
             const totais = calcularTotais()
+
+            // Mapeia linhas para o backend (suporta linhas de texto)
+            const pecasPayload = (mostrarPecas ? pecasNecessarias : []).map((p, idx) => {
+                const isText = p.is_text === 1 || p.isText === true;
+                return {
+                    tipopeca: isText ? null : p.tipopeca,
+                    marca: isText ? null : p.marca,
+                    quantidade: isText ? 0 : (p.quantidade || 1),
+                    preco_unitario: isText ? 0 : (p.preco_unitario || 0),
+                    desconto_percentual: isText ? 0 : (p.desconto_percentual || 0),
+                    tipo_desconto: isText ? 'nenhum' : (p.tipo_desconto || 'nenhum'),
+                    observacao: isText ? null : (p.observacao || null),
+                    existe_no_sistema: p.existe_no_sistema || p.existeNoSistema ? 1 : 0,
+                    is_text: isText ? 1 : 0,
+                    texto: isText ? (p.texto || p.observacao || p.tipopeca || "") : null,
+                    ordem: p.ordem != null ? p.ordem : (idx + 1)
+                };
+            });
+
             const dadosReparacao = {
                 ...form,
                 mao_obra: valorMaoObra.toFixed(2),
                 totalPecas: totais.totalPecas,
                 totalGeral: totais.totalGeral,
                 totalDescontos: totais.totalDescontos,
-                pecasNecessarias: mostrarPecas ? pecasNecessarias : [],
+                pecasNecessarias: pecasPayload,
             }
 
             axios
@@ -988,7 +1040,7 @@ function ReparacoesRegisto() {
                                                             type="text"
                                                             className="form-control"
                                                             name="marca"
-                                                            value={novaPeca.marca}
+                                                            value={showTextoRow ? "texto" : novaPeca.marca}
                                                             onChange={handleNovaPecaChange}
                                                             placeholder="Ex: Bosch, Mann..."
                                                         />
@@ -1057,6 +1109,58 @@ function ReparacoesRegisto() {
                                                             disabled={novaPeca.tipo_desconto === 'nenhum'}
                                                         />
                                                     </div>
+                                                </div>
+                                                {/* Bloco para adicionar Linha de Texto */}
+                                                <div className="mt-4">
+                                                    <div className="d-flex align-items-center justify-content-between">
+                                                        <h6 className="mb-0">
+                                                            <i className="bi bi-text-left me-2"></i>
+                                                            Linha de Texto (não contabiliza total)
+                                                        </h6>
+                                                        {!showTextoRow ? (
+                                                            <button
+                                                                type="button"
+                                                                className="btn btn-outline-secondary btn-sm"
+                                                                onClick={() => setShowTextoRow(true)}
+                                                            >
+                                                                <i className="bi bi-plus-lg me-1"></i>
+                                                                Adicionar Linha de Texto
+                                                            </button>
+                                                        ) : null}
+                                                    </div>
+
+                                                    {showTextoRow && (
+                                                        <div className="row g-2 mt-2">
+                                                            <div className="col-10">
+                                                                <input
+                                                                    type="text"
+                                                                    className="form-control"
+                                                                    placeholder="Digite o texto que deseja inserir no orçamento..."
+                                                                    value={form.textoLinha}
+                                                                    onChange={(e) => setTextoLinha(e.target.value)}
+                                                                />
+                                                            </div>
+                                                            <div className="col-2 d-flex gap-2">
+                                                                <button
+                                                                    type="button"
+                                                                    className="btn btn-success w-50"
+                                                                    onClick={adicionarLinhaTexto}
+                                                                    disabled={!textoLinha.trim()}
+                                                                    title="Inserir linha de texto"
+                                                                >
+                                                                    <i className="bi bi-check-lg"></i>
+                                                                </button>
+                                                                <button
+                                                                    type="button"
+                                                                    className="btn btn-outline-danger w-50"
+                                                                    onClick={() => { setTextoLinha(""); setShowTextoRow(false); }}
+                                                                    title="Cancelar"
+                                                                >
+                                                                    <i className="bi bi-x-lg"></i>
+                                                                </button>
+                                                            </div>
+                                                        </div>
+                                                    )}
                                                 </div>
 
                                                 {/* Segunda Linha - Observações e Botão */}
@@ -1169,8 +1273,31 @@ function ReparacoesRegisto() {
                                                             </thead>
                                                             <tbody>
                                                                 {pecasNecessarias
-                                                                    .sort((a, b) => a.id - b.id) // Mantém a ordem de inserção (IDs mais antigos primeiro)
+                                                                    .sort((a, b) => (a.ordem ?? a.id) - (b.ordem ?? b.id))
                                                                     .map((peca) => {
+                                                                        // Linha de Texto
+                                                                        if (peca.is_text === 1 || peca.isText === true) {
+                                                                            return (
+                                                                                <tr key={peca.id} className="table-light">
+                                                                                    <td colSpan={9}>
+                                                                                        <i className="bi bi-dot me-1"></i>
+                                                                                        <em>{peca.texto || peca.observacao || peca.tipopeca}</em>
+                                                                                        <div className="float-end">
+                                                                                            <button
+                                                                                                type="button"
+                                                                                                className="btn btn-outline-danger btn-sm"
+                                                                                                onClick={() => removerPeca(peca.id)}
+                                                                                                title="Remover linha"
+                                                                                            >
+                                                                                                <i className="bi bi-trash"></i>
+                                                                                            </button>
+                                                                                        </div>
+                                                                                    </td>
+                                                                                </tr>
+                                                                            );
+                                                                        }
+
+                                                                        // Linha normal (peça)
                                                                         const precoComDesconto = peca.preco_com_desconto || peca.preco_unitario;
                                                                         const totalItem = precoComDesconto * peca.quantidade;
 
@@ -1188,16 +1315,16 @@ function ReparacoesRegisto() {
                                                                                 <td>
                                                                                     <span className="badge bg-info">{peca.quantidade}</span>
                                                                                 </td>
-                                                                                <td>€{peca.preco_unitario.toFixed(2)}</td>
+                                                                                <td>€{Number(peca.preco_unitario).toFixed(2)}</td>
                                                                                 <td>
                                                                                     <button
                                                                                         className="btn btn-sm btn-outline-primary"
                                                                                         onClick={() => abrirModalDesconto(peca.id)}
                                                                                     >
                                                                                         {peca.tipo_desconto === 'valor' && peca.desconto_unitario > 0 ? (
-                                                                                            <>-€{peca.desconto_unitario.toFixed(2)}</>
+                                                                                            <>-€{Number(peca.desconto_unitario).toFixed(2)}</>
                                                                                         ) : peca.tipo_desconto === 'percentual' && peca.desconto_percentual > 0 ? (
-                                                                                            <>-{peca.desconto_percentual}%</>
+                                                                                            <>-{Number(peca.desconto_percentual)}%</>
                                                                                         ) : (
                                                                                             <i className="bi bi-percent"></i>
                                                                                         )}
@@ -1205,9 +1332,9 @@ function ReparacoesRegisto() {
                                                                                 </td>
                                                                                 <td>
                                                                                     <span className="fw-bold">
-                                                                                        €{precoComDesconto.toFixed(2)}
+                                                                                        €{Number(precoComDesconto).toFixed(2)}
                                                                                     </span>
-                                                                                    {peca.preco_com_desconto < peca.preco_unitario && (
+                                                                                    {precoComDesconto < peca.preco_unitario && (
                                                                                         <div>
                                                                                             <small className="text-success">
                                                                                                 (Economia: €{(peca.preco_unitario - precoComDesconto).toFixed(2)})
@@ -1216,7 +1343,7 @@ function ReparacoesRegisto() {
                                                                                     )}
                                                                                 </td>
                                                                                 <td>
-                                                                                    <strong>€{totalItem.toFixed(2)}</strong>
+                                                                                    <strong>€{Number(totalItem).toFixed(2)}</strong>
                                                                                 </td>
                                                                                 <td>
                                                                                     {peca.existeNoSistema ? (

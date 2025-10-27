@@ -45,6 +45,11 @@ function ReparacoesEdit() {
         tipo_desconto: "percentual", // Fixo em percentual
         observacao: "",
     })
+
+    const [showTextoRow, setShowTextoRow] = useState(false)
+    const [textoLinha, setTextoLinha] = useState("")
+    const [editingTextId, setEditingTextoId] = useState(null)
+    const [editingtextVal, setEditingtextVal] = useState("")
     const [pecasExistentes, setPecasExistentes] = useState([])
     const [mostrarPecas, setMostrarPecas] = useState(false)
     const [loadingPecas, setLoadingPecas] = useState(false)
@@ -334,6 +339,28 @@ function ReparacoesEdit() {
         [pecasExistentes],
     )
 
+    const adicionarLinhaTexto = useCallback(() => {
+        const texto = (textoLinha || "").trim();
+        if (!texto) return;
+
+        const nova = {
+            id: Date.now(),
+            is_text: 1,
+            texto,
+            tipopeca: "",
+            quantidade: 0,
+            preco_unitario: 0,
+            desconto_percentual: 0,
+            tipo_desconto: "nenhum",
+            observacao: "",
+            ordem: (pecasNecessarias.length || 0) + 1,
+        };
+
+        setPecasNecessarias(prev => [...prev, nova]);
+        setTextoLinha("");
+        setShowTextoRow(false);
+    }, [textoLinha, pecasNecessarias?.length]);
+
     const adicionarPeca = useCallback(() => {
         if (!novaPeca.tipopeca.trim() || !novaPeca.marca.trim()) {
             setErro("Tipo de peça e marca são obrigatórios.")
@@ -421,6 +448,16 @@ function ReparacoesEdit() {
             }),
         );
     }, []);
+
+    const iniciarEdicaoTexto = useCallback(() => {
+        setEditingTextoId(peca.id)
+        setEditingtextVal(String(peca.texto ?? peca.observacao ?? peca.tipopeca ?? ""))
+    }, [])
+
+    const cancelarEdicaoTexto = useCallback(() => {
+        setEditingTextoId(null)
+        setEditingTextoVal("")
+    }, [])
 
     const iniciarEdicaoPeca = useCallback((peca) => {
         setNovaPeca({ ...peca })
@@ -1357,52 +1394,52 @@ function ReparacoesEdit() {
                                                                     </thead>
                                                                     <tbody>
                                                                         {pecasNecessarias
-                                                                            .sort((a, b) => a.id - b.id)
+                                                                            .sort((a, b) => (a.ordem ?? a.id) - (b.ordem ?? b.id))
                                                                             .map((peca) => {
-                                                                                const precoComDesconto = peca.preco_com_desconto || peca.preco_unitario;
-                                                                                const totalItem = precoComDesconto * peca.quantidade;
+                                                                                // Linha de texto: ocupa a linha toda, sem valores
+                                                                                if (peca.is_text === 1 || peca.isText === true) {
+                                                                                    return (
+                                                                                        <tr key={peca.id} className="table-light">
+                                                                                            <td colSpan={10}>
+                                                                                                <i className="bi bi-dot me-1"></i>
+                                                                                                <em>{peca.texto || peca.observacao || peca.tipopeca}</em>
+                                                                                                <div className="float-end">
+                                                                                                    <button
+                                                                                                        type="button"
+                                                                                                        className="btn btn-outline-danger btn-sm"
+                                                                                                        onClick={() => removerPeca(peca.id)}
+                                                                                                        title="Remover linha"
+                                                                                                    >
+                                                                                                        <i className="bi bi-trash"></i>
+                                                                                                    </button>
+                                                                                                </div>
+                                                                                            </td>
+                                                                                        </tr>
+                                                                                    );
+                                                                                }
+
+                                                                                // Linha normal (peça)
+                                                                                const pu = Number(peca.preco_unitario) || 0;
+                                                                                const descPct = Number(peca.desconto_percentual) || 0;
+                                                                                const precoComDesconto = Math.max(0, pu - pu * (descPct / 100));
+                                                                                const totalItem = precoComDesconto * (peca.quantidade || 0);
 
                                                                                 return (
                                                                                     <tr key={peca.id}>
-                                                                                        <td>
-                                                                                            <strong>{peca.tipopeca}</strong>
-                                                                                        </td>
+                                                                                        <td><strong>{peca.tipopeca}</strong></td>
                                                                                         <td>{peca.marca}</td>
+                                                                                        <td><span className="badge bg-info">{peca.quantidade}</span></td>
+                                                                                        <td>€{pu.toFixed(2)}</td>
                                                                                         <td>
-                                                                                            <span className="badge bg-info">{peca.quantidade}</span>
-                                                                                        </td>
-                                                                                        <td>€{peca.preco_unitario.toFixed(2)}</td>
-                                                                                        <td>
-                                                                                            <td>
-                                                                                                {peca.desconto_percentual > 0 ? (
-                                                                                                    <>-{peca.desconto_percentual}%</>
-                                                                                                ) : (
-                                                                                                    <span className="text-muted">0%</span>
-                                                                                                )}
-                                                                                            </td>
-                                                                                        </td>
-                                                                                        <td>
-                                                                                            <span className="fw-bold">
-                                                                                                €{precoComDesconto.toFixed(2)}
-                                                                                            </span>
-                                                                                            {peca.preco_com_desconto < peca.preco_unitario && (
-                                                                                                <div>
-                                                                                                    <small className="text-success">
-                                                                                                        (Economia: €{(peca.preco_unitario - precoComDesconto).toFixed(2)})
-                                                                                                    </small>
-                                                                                                </div>
-                                                                                            )}
-                                                                                        </td>
-                                                                                        <td>
-                                                                                            <strong>€{totalItem.toFixed(2)}</strong>
-                                                                                        </td>
-                                                                                        <td>
-                                                                                            {peca.observacao ? (
-                                                                                                <span className="text-muted">{peca.observacao}</span>
+                                                                                            {descPct > 0 ? (
+                                                                                                <span className="badge bg-warning">-{descPct}%</span>
                                                                                             ) : (
-                                                                                                <span className="text-secondary">—</span>
+                                                                                                <span className="text-muted">—</span>
                                                                                             )}
                                                                                         </td>
+                                                                                        <td><span className="fw-bold">€{precoComDesconto.toFixed(2)}</span></td>
+                                                                                        <td><strong>€{totalItem.toFixed(2)}</strong></td>
+                                                                                        <td>{peca.observacao || <span className="text-muted">—</span>}</td>
                                                                                         <td>
                                                                                             {peca.existeNoSistema ? (
                                                                                                 <span className="badge bg-success">

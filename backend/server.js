@@ -76,7 +76,9 @@ async function generateRepairPDF(reparacaoId) {
                 COALESCE(preco_total, 0) as preco_total,
                 COALESCE(desconto_percentual, 0) as desconto_percentual,
                 COALESCE(preco_com_desconto, preco_unitario) as preco_com_desconto,
-                COALESCE(observacao, '') as observacao
+                COALESCE(observacao, '') as observacao,
+                COALESCE(is_text, 0) as is_text,
+                texto
             FROM pecas_reparacao 
             WHERE reparacao_id = ?
             ORDER BY id ASC`,
@@ -178,16 +180,35 @@ async function generateRepairPDF(reparacaoId) {
                 let totalPecas = 0;
 
                 pecas.forEach(p => {
-                    const qtd = Number(p.quantidade);
-                    const unit = Number(p.preco_unitario);
-                    const desc = Number(p.desconto_percentual);
+                    if (p.is_text) {
+                        const linha = (p.texto && p.texto.trim().length > 0)
+                            ? p.texto
+                            : (p.observacao && p.observacao.trim().length > 0)
+                                ? p.observacao
+                                : (p.tipopeca || ""); // fallback
+                        if (!linha) return;
+
+                        // Linha de texto ocupando a área da descrição
+                        checkSpace(12);
+                        doc.fontSize(9).font("Helvetica-Oblique")
+                            .fillColor("#444444")
+                            .text(linha, col.d, y, { width: col.total - col.d });
+                        doc.fillColor("black");
+                        y += 12;
+                        doc.moveTo(col.d, y - 2).lineTo(550, y - 2).dash(1, { space: 2 }).strokeColor("#cccccc").stroke().undash().strokeColor("black");
+                        return; // não mexe no totalPecas
+                    }
+
+                    const qtd = Number(p.quantidade || 0);
+                    const unit = Number(p.preco_unitario || 0);
+                    const desc = Number(p.desconto_percentual || 0);
                     const final = p.preco_com_desconto != null ? Number(p.preco_com_desconto) : unit;
                     const total = final * qtd;
 
                     checkSpace(12);
                     doc.fontSize(9).font("Helvetica")
-                        .text(p.tipopeca, col.d, y, { width: col.ref - col.d - 5 })
-                        .text(p.marca, col.ref, y, { width: col.qtd - col.ref - 5 })
+                        .text(p.tipopeca || "", col.d, y, { width: col.ref - col.d - 5 })
+                        .text(p.marca || "", col.ref, y, { width: col.qtd - col.ref - 5 })
                         .text(qtd.toString(), col.qtd, y)
                         .text(`€${unit.toFixed(2)}`, col.preco, y)
                         .text(`${desc.toFixed(1)}`, col.dsc, y)
@@ -1241,27 +1262,51 @@ app.post("/reparacoes", async (req, res) => {
         // Se houver peças, insira-as (SEM preco_total que é coluna gerada)
         if (Array.isArray(pecasNecessarias) && pecasNecessarias.length > 0) {
             console.log(`🔧 Inserindo ${pecasNecessarias.length} peças...`)
-            for (const peca of pecasNecessarias) {
-                const quantidade = Number(peca.quantidade) || 1
-                const precoUnitario = Number(peca.preco_unitario) || 0
+            for (let idx = 0; idx < pecasNecessarias.length; idx++) {
+                const peca = pecasNecessarias[idx];
+
+                const isText =
+                    peca.is_text === 1 || peca.is_text === true || peca.isText === true ? 1 : 0;
+
+                const textoLinha = isText
+                    ? (peca.texto || peca.tipopeca || peca.observacao || "Linha de texto") : null;
+
+                const tipopeca = isText
+                    ? textoLinha.substring(0, 255)  //ocupa a coluna sem quebrar NOT NULL
+                    : (peca.tipopeca || "");
+
+                const marca = isText
+                    ? "Texto" //placeholder
+                    : (peca.marca || "");
+
+                const quantidade = isText ? 0 : (Number(peca.quantidade) || 1);
+                const precoUnitario = isText ? 0 : (Number(peca.preco_unitario) || 0);
+                const existeNoSistema = isText ? 0 : (peca.existe_no_sistema || peca.existeNoSistema ? 1 : 0);
+                const observacao = isText ? null : toNull(peca.observacao);
+                const desconto_percentual = isText ? 0 : (Number(peca.tipo_desconto || 'nenhum'));
+                const tipo_desconto = isText ? 'nenhum' : (peca.tipo_desconto || 'nenhum');
+                const ordem = (peca.ordem != null ? Number(peca.ordem) : (idx + 1))
 
                 await pool.execute(
                     `INSERT INTO pecas_reparacao (
-            reparacao_id, tipopeca, marca, quantidade, 
-            preco_unitario, existe_no_sistema, observacao, desconto_unitario, desconto_percentual, 
-            tipo_desconto
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                reparacao_id, tipopeca, marca, quantidade, 
+                preco_unitario, existe_no_sistema, observacao
+                , desconto_percentual, tipo_desconto,
+                is_text, texto, ordem
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                     [
                         reparacaoId,
-                        peca.tipopeca,
-                        peca.marca,
+                        tipopeca,
+                        marca,
                         quantidade,
                         precoUnitario,
-                        peca.existeNoSistema ? 1 : 0,
-                        peca.observacao || null,
-                        peca.desconto_unitario || 0,
-                        peca.desconto_percentual || 0,
-                        peca.tipo_desconto || null,
+                        existeNoSistema,
+                        observacao,
+                        desconto_percentual,
+                        tipo_desconto,
+                        isText,
+                        toNull(textoLinha),
+                        ordem
                     ],
                 )
             }
@@ -1461,17 +1506,22 @@ app.get("/reparacoes/:id/pecas", async (req, res) => {
     try {
         const [rows] = await pool.execute(`
             SELECT 
-                id, tipopeca, marca, quantidade, observacao,
-                COALESCE(preco_unitario, 0) as preco_unitario,
-                COALESCE(desconto_unitario, 0) as desconto_unitario,
-                COALESCE(desconto_percentual, 0) as desconto_percentual,
-                tipo_desconto,
-                preco_com_desconto,
-                (preco_com_desconto * COALESCE(quantidade, 1)) as preco_total,
-                COALESCE(existe_no_sistema, 0) as existe_no_sistema
+                id,
+                tipopeca,
+                marca,
+                quantidade,
+                observacao,
+                COALESCE(preco_unitario, 0) AS preco_unitario,
+                COALESCE(desconto_percentual, 0) AS desconto_percentual,
+                COALESCE(tipo_desconto, 'nenhum') AS tipo_desconto,
+                COALESCE(preco_total, 0) AS preco_total,
+                COALESCE(existe_no_sistema, 0) AS existe_no_sistema,
+                COALESCE(is_text, 0) AS is_text,
+                texto,
+                ordem
             FROM pecas_reparacao
             WHERE reparacao_id = ?
-            ORDER BY id ASC
+            ORDER BY COALESCE(ordem, id) ASC
         `, [id]);
 
         res.json(rows);
@@ -1502,24 +1552,45 @@ app.put("/reparacoes/:id/pecas", async (req, res) => {
         await connection.execute("DELETE FROM pecas_reparacao WHERE reparacao_id = ?", [id]);
 
         // Inserir as novas peças com suporte a descontos
-        for (const peca of pecasNecessarias) {
-            await connection.execute(`
-                INSERT INTO pecas_reparacao (
-                    reparacao_id, tipopeca, marca, quantidade, 
-                    preco_unitario, existe_no_sistema, observacao,
-                    desconto_unitario, desconto_percentual, tipo_desconto
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            `, [
+        for (let idx = 0; idx < pecasNecessarias.length; idx++) {
+            const peca = pecasNecessarias[idx];
+
+            const isText = peca.is_text === 1 || peca.is_text === true || peca.isText === true ? 1 : 0;
+
+            const textLinha = isText
+                ? (peca.texto || peca.tipopeca || peca.observacao || "Linha de texto")
+                : null;
+
+            const tipopeca = isText
+                ? textLinha.substring(0, 255)
+                : (peca.tipopeca || "");
+
+            const marca = isText ? "Texto" : (peca.marca || "");
+            const quantidade = isText ? 0 : (Number(peca.quantidade) || 1);
+            const preco_unitario = isText ? 0 : (Number(peca.preco_unitario) || 0);
+            const existe_no_sistema = peca.existe_no_sistema || peca.existeNoSistema ? 1 : 0;
+            const observacao = toNull(peca.observacao);
+            const desconto_percentual = isText ? 0 : (Number(peca.desconto_percentual) || 0);
+            const tipo_desconto = isText ? 'nenhum' : (peca.tipo_desconto || 'nenhum');
+            const ordem = peca.ordem != null ? Number(peca.ordem) : (idx + 1);
+
+            await connection.execute(`INSERT INTO pecas_reparacao(
+                reparacao_id, tipopeca, marca, quantidade, preco_unitario, existe_no_sistema, observacao,
+                desconto_percentual, tipo_desconto, is_text, texto, ordem
+                )VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                `, [
                 id,
-                peca.tipopeca.trim(),
-                peca.marca.trim(),
-                peca.quantidade || 1,
-                peca.preco_unitario || 0,
-                peca.existe_no_sistema ? 1 : 0,
-                peca.observacao || null,
-                peca.desconto_unitario || 0,
-                peca.desconto_percentual || 0,
-                peca.tipo_desconto || 'nenhum'
+                tipopeca,
+                marca,
+                quantidade,
+                preco_unitario,
+                existe_no_sistema,
+                observacao,
+                desconto_percentual,
+                tipo_desconto,
+                isText,
+                toNull(textLinha),
+                ordem
             ]);
         }
 

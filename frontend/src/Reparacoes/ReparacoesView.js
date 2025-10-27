@@ -1021,6 +1021,8 @@ function ReparacoesView() {
                                 Observações das Peças
                             </h5>
                         </div>
+
+                        
                         <div className="card-body">
                             {pecas
                                 .filter((peca) => peca.observacao)
