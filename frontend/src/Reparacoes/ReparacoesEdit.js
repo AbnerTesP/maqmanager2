@@ -48,8 +48,8 @@ function ReparacoesEdit() {
 
     const [showTextoRow, setShowTextoRow] = useState(false)
     const [textoLinha, setTextoLinha] = useState("")
-    const [editingTextId, setEditingTextoId] = useState(null)
-    const [editingtextVal, setEditingtextVal] = useState("")
+    const [editingTextoId, setEditingTextoId] = useState(null)
+    const [editingTextoVal, setEditingTextoVal] = useState("")
     const [pecasExistentes, setPecasExistentes] = useState([])
     const [mostrarPecas, setMostrarPecas] = useState(false)
     const [loadingPecas, setLoadingPecas] = useState(false)
@@ -339,27 +339,7 @@ function ReparacoesEdit() {
         [pecasExistentes],
     )
 
-    const adicionarLinhaTexto = useCallback(() => {
-        const texto = (textoLinha || "").trim();
-        if (!texto) return;
 
-        const nova = {
-            id: Date.now(),
-            is_text: 1,
-            texto,
-            tipopeca: "",
-            quantidade: 0,
-            preco_unitario: 0,
-            desconto_percentual: 0,
-            tipo_desconto: "nenhum",
-            observacao: "",
-            ordem: (pecasNecessarias.length || 0) + 1,
-        };
-
-        setPecasNecessarias(prev => [...prev, nova]);
-        setTextoLinha("");
-        setShowTextoRow(false);
-    }, [textoLinha, pecasNecessarias?.length]);
 
     const adicionarPeca = useCallback(() => {
         if (!novaPeca.tipopeca.trim() || !novaPeca.marca.trim()) {
@@ -413,7 +393,7 @@ function ReparacoesEdit() {
             preco_unitario: 0,
             desconto_percentual: 0,
             tipo_desconto: "percentual",
-            observacoes: "",
+            observacao: "",
         })
         setErro("")
     }, [novaPeca, pecasNecessarias, verificarPecaExistente])
@@ -449,15 +429,50 @@ function ReparacoesEdit() {
         );
     }, []);
 
-    const iniciarEdicaoTexto = useCallback(() => {
+    const iniciarEdicaoTexto = useCallback((peca) => {
         setEditingTextoId(peca.id)
-        setEditingtextVal(String(peca.texto ?? peca.observacao ?? peca.tipopeca ?? ""))
+        setEditingTextoVal(String(peca.texto ?? peca.observacao ?? peca.tipopeca ?? ""))
     }, [])
 
     const cancelarEdicaoTexto = useCallback(() => {
         setEditingTextoId(null)
         setEditingTextoVal("")
     }, [])
+
+    const salvarEdicaoTexto = useCallback(() => {
+        const novo = (editingTextoVal || "").trim()
+        if (!novo) return
+        setPecasNecessarias(prev => prev.map(p => p.id === editingTextoId ? { ...p, texto: novo } : p)
+        )
+        setEditingTextoId(null)
+        setEditingTextoVal("")
+    }, [editingTextoId, editingTextoVal])
+
+    const adicionarLinhaTexto = useCallback(() => {
+        const texto = (textoLinha || "").trim();
+        if (!texto) return;
+
+        setPecasNecessarias(prev => [
+            ...prev,
+            {
+                id: Date.now(),
+                is_text: 1,
+                texto,
+                tipopeca: "",
+                marca: "texto",
+                quantidade: 0,
+                preco_unitario: 0,
+                desconto_percentual: 0,
+
+                tipo_desconto: "nenhum",
+                observacao: "",
+                ordem: (prev.length || 0) + 1,
+            }
+        ]);
+
+        setTextoLinha("");
+        setShowTextoRow(false);
+    }, [textoLinha]);
 
     const iniciarEdicaoPeca = useCallback((peca) => {
         setNovaPeca({ ...peca })
@@ -549,47 +564,42 @@ function ReparacoesEdit() {
         (e) => {
             e.preventDefault()
             setErro("")
-
-            if (!validateForm()) {
-                return
-            }
-
+            if (!validateForm()) return
             if (!hasChanges()) {
                 alert("Nenhuma alteração foi feita.")
                 return
             }
-
             setSaving(true)
 
             const formToSend = {
                 ...form,
                 valor_mao_obra: valorMaoObra,
-                mao_obra: valorMaoObra, // Compatibilidade
+                mao_obra: valorMaoObra,
                 desconto,
                 tipo_desconto: tipoDesconto,
                 total_pecas: totalPecas,
                 total_geral: totalGeral,
             }
 
-            // Primeiro, atualizar os dados da reparação
-            axios
-                .put(`http://localhost:8082/reparacoes/${id}`, formToSend)
+            axios.put(`http://localhost:8082/reparacoes/${id}`, formToSend)
                 .then(() => {
-                    // Se o orçamento foi aceito e há peças, atualizar as peças
                     if (mostrarPecas && pecasNecessarias.length > 0) {
-                        const pecasParaEnvio = pecasNecessarias.map((peca) => ({
-                            tipopeca: peca.tipopeca,
-                            marca: peca.marca,
-                            quantidade: peca.quantidade,
-                            preco_unitario: peca.preco_unitario,
-                            desconto_unitario: peca.desconto_unitario || 0,
-                            desconto_percentual: peca.desconto_percentual || 0,
-                            tipo_desconto: peca.tipo_desconto || "percentual",
-                            preco_com_desconto: peca.preco_com_desconto,
-                            preco_total: peca.preco_total,
-                            observacoes: peca.observacoes || "",
-                            existe_no_sistema: peca.existeNoSistema,
-                        }))
+                        const pecasParaEnvio = pecasNecessarias.map((p, idx) => {
+                            const isText = p.is_text === 1 || p.isText === true
+                            return {
+                                tipopeca: isText ? null : p.tipopeca,
+                                marca: isText ? "texto" : (p.marca || ""),
+                                quantidade: isText ? 0 : (Number(p.quantidade) || 1),
+                                preco_unitario: isText ? 0 : (Number(p.preco_unitario) || 0),
+                                desconto_percentual: isText ? 0 : (Number(p.desconto_percentual) || 0),
+                                tipo_desconto: isText ? "nenhum" : (p.tipo_desconto || "percentual"),
+                                observacao: isText ? null : (p.observacao || ""),
+                                existe_no_sistema: isText ? 0 : (p.existe_no_sistema || p.existeNoSistema ? 1 : 0),
+                                is_text: isText ? 1 : 0,
+                                texto: isText ? String(p.texto ?? p.observacao ?? p.tipopeca ?? "").trim() : null,
+                                ordem: p.ordem != null ? p.ordem : (idx + 1),
+                            }
+                        })
 
                         return axios.put(`http://localhost:8082/reparacoes/${id}/pecas`, {
                             pecasNecessarias: pecasParaEnvio,
@@ -608,19 +618,9 @@ function ReparacoesEdit() {
                 .finally(() => setSaving(false))
         },
         [
-            form,
-            validateForm,
-            hasChanges,
-            valorMaoObra,
-            desconto,
-            tipoDesconto,
-            totalPecas,
-            totalGeral,
-            mostrarPecas,
-            pecasNecessarias,
-            id,
-            navigate,
-        ],
+            form, validateForm, hasChanges, valorMaoObra, desconto, tipoDesconto,
+            totalPecas, totalGeral, mostrarPecas, pecasNecessarias, id, navigate
+        ]
     )
 
     const handleCancel = useCallback(() => {
@@ -1393,26 +1393,65 @@ function ReparacoesEdit() {
                                                                         </tr>
                                                                     </thead>
                                                                     <tbody>
-                                                                        {pecasNecessarias
+                                                                        {[...pecasNecessarias]
                                                                             .sort((a, b) => (a.ordem ?? a.id) - (b.ordem ?? b.id))
                                                                             .map((peca) => {
                                                                                 // Linha de texto: ocupa a linha toda, sem valores
                                                                                 if (peca.is_text === 1 || peca.isText === true) {
+                                                                                    const emEdicao = editingTextoId === peca.id
                                                                                     return (
                                                                                         <tr key={peca.id} className="table-light">
                                                                                             <td colSpan={10}>
-                                                                                                <i className="bi bi-dot me-1"></i>
-                                                                                                <em>{peca.texto || peca.observacao || peca.tipopeca}</em>
-                                                                                                <div className="float-end">
-                                                                                                    <button
-                                                                                                        type="button"
-                                                                                                        className="btn btn-outline-danger btn-sm"
-                                                                                                        onClick={() => removerPeca(peca.id)}
-                                                                                                        title="Remover linha"
-                                                                                                    >
-                                                                                                        <i className="bi bi-trash"></i>
-                                                                                                    </button>
-                                                                                                </div>
+                                                                                                {emEdicao ? (
+                                                                                                    <div className="d-flex align-items-center gap-2">
+                                                                                                        <input
+                                                                                                            type="text"
+                                                                                                            className="form-control"
+                                                                                                            value={editingTextoVal}
+                                                                                                            onChange={(e) => setEditingTextoVal(e.target.value)}
+                                                                                                            placeholder="Escreva o texto da linha..."
+                                                                                                        />
+                                                                                                        <button
+                                                                                                            type="button"
+                                                                                                            className="btn btn-success btn-sm"
+                                                                                                            onClick={salvarEdicaoTexto}
+                                                                                                            title="Guardar"
+                                                                                                        >
+                                                                                                            <i className="bi bi-check"></i>
+                                                                                                        </button>
+                                                                                                        <button
+                                                                                                            type="button"
+                                                                                                            className="btn btn-secondary btn-sm"
+                                                                                                            onClick={cancelarEdicaoTexto}
+                                                                                                            title="Cancelar"
+                                                                                                        >
+                                                                                                            <i className="bi bi-x"></i>
+                                                                                                        </button>
+                                                                                                    </div>
+                                                                                                ) : (
+                                                                                                    <>
+                                                                                                        <i className="bi bi-dot me-1"></i>
+                                                                                                        <em>{peca.texto || peca.observacao || peca.tipopeca}</em>
+                                                                                                        <div className="float-end">
+                                                                                                            <button
+                                                                                                                type="button"
+                                                                                                                className="btn btn-outline-primary btn-sm me-2"
+                                                                                                                onClick={() => iniciarEdicaoTexto(peca)}
+                                                                                                                title="Editar linha"
+                                                                                                            >
+                                                                                                                <i className="bi bi-pencil"></i>
+                                                                                                            </button>
+                                                                                                            <button
+                                                                                                                type="button"
+                                                                                                                className="btn btn-outline-danger btn-sm"
+                                                                                                                onClick={() => removerPeca(peca.id)}
+                                                                                                                title="Remover linha"
+                                                                                                            >
+                                                                                                                <i className="bi bi-trash"></i>
+                                                                                                            </button>
+                                                                                                        </div>
+                                                                                                    </>
+                                                                                                )}
                                                                                             </td>
                                                                                         </tr>
                                                                                     );
