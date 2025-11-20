@@ -1,120 +1,121 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 
+// Configuração da API (Idealmente mover para um arquivo .env)
+const API_URL = "http://localhost:8082/alarmes/resumo";
+
+// --- Hook Personalizado para Gerir Alarmes ---
+const useAlarmes = () => {
+    const [total, setTotal] = useState(0);
+
+    const fetchAlarmes = useCallback(async () => {
+        try {
+            const response = await fetch(API_URL);
+            if (response.ok) {
+                const data = await response.json();
+                setTotal(data.total || 0);
+            }
+        } catch (err) {
+            console.error("Erro ao buscar alarmes:", err);
+            // Não zeramos o total em caso de erro de rede momentâneo para evitar "piscar"
+        }
+    }, []);
+
+    useEffect(() => {
+        fetchAlarmes();
+        const interval = setInterval(fetchAlarmes, 120000); // 2 minutos
+        return () => clearInterval(interval);
+    }, [fetchAlarmes]);
+
+    return total;
+};
+
+// --- Sub-componente para Links da Navbar ---
+const NavItem = ({ to, children, isActive }) => (
+    <li className={`nav-item ${isActive ? 'active fw-bold' : ''}`}>
+        <Link className="nav-link" to={to}>
+            {children}
+        </Link>
+    </li>
+);
 
 const NavigationBar = () => {
     const location = useLocation();
     const [isMenuOpen, setIsMenuOpen] = useState(false);
-    const [totalAlarmes, setTotalAlarmes] = useState(0);
+
+    // Usa o hook personalizado
+    const totalAlarmes = useAlarmes();
 
     const badgeRef = useRef(null);
     const prevTotalRef = useRef(totalAlarmes);
 
+    // Lógica de Animação
     useEffect(() => {
-        const carregarTotalAlarmes = async () => {
-            try {
-                const response = await fetch("http://localhost:8082/alarmes/resumo");
-                if (response.ok) {
-                    const data = await response.json();
-                    setTotalAlarmes(data.total || 0);
-                }
-            } catch (err) {
-                setTotalAlarmes(0);
-            }
-        };
-        carregarTotalAlarmes();
-        const interval = setInterval(carregarTotalAlarmes, 2 * 60 * 1000);
-        return () => clearInterval(interval);
-    }, []);
-
-    // animação quando totalAlarmes muda (usa import dinâmico para evitar erros de export)
-    useEffect(() => {
-        let mounted = true;
-
-        async function runAnimation() {
-            if (prevTotalRef.current !== totalAlarmes) {
-                // só animar quando o badge existe e houver um valor (evita animar de/para 0)
-                if (badgeRef.current && totalAlarmes > 0) {
-                    try {
-                        const mod = await import('animejs');
-                        const anime = mod && (mod.default || mod);
-                        if (!mounted) return;
-                        anime({
-                            targets: badgeRef.current,
-                            scale: [1, 1.35, 1],
-                            duration: 600,
-                            easing: 'easeOutElastic(1, .6)',
-                        });
-                    } catch (e) {
-                        // falha ao carregar animejs — logar e continuar sem animação
-                        console.error("Falha ao carregar animejs:", e);
-                    }
-                }
-                prevTotalRef.current = totalAlarmes;
-            }
+        // Só anima se o valor mudou e se o novo valor é maior que 0
+        if (prevTotalRef.current !== totalAlarmes && totalAlarmes > 0 && badgeRef.current) {
+            import('animejs').then((mod) => {
+                const anime = mod.default || mod;
+                anime({
+                    targets: badgeRef.current,
+                    scale: [1, 1.5, 1], // Efeito de "pulso"
+                    duration: 600,
+                    easing: 'easeOutElastic(1, .5)',
+                });
+            }).catch(e => console.warn("AnimeJS não carregou", e));
         }
-
-        runAnimation();
-        return () => { mounted = false; }
+        prevTotalRef.current = totalAlarmes;
     }, [totalAlarmes]);
 
-    // Esconder navbar em login/registro
-    const hideNavBar = location.pathname === '/login' || location.pathname === '/registro';
+    // Rotas onde a navbar não deve aparecer
+    const hideNavBar = ['/login', '/registro'].includes(location.pathname);
     if (hideNavBar) return null;
 
     return (
-        <nav className="navbar navbar-expand-lg navbar-light bg-white fixed-top shadow-sm">
+        <nav className="navbar navbar-expand-lg navbar-light bg-white fixed-top shadow-sm py-3">
             <div className="container">
-                <Link className="navbar-brand fw-bold" to="/">
+                <Link className="navbar-brand fw-bold text-primary" to="/" style={{ letterSpacing: '-0.5px' }}>
+                    <i className="bi bi-grid-3x3-gap-fill me-2"></i>
                     MaqManager
                 </Link>
+
                 <button
-                    className="navbar-toggler"
+                    className="navbar-toggler border-0 focus-ring focus-ring-light"
                     type="button"
                     onClick={() => setIsMenuOpen(!isMenuOpen)}
-                    aria-controls="navbarSupportedContent"
                     aria-expanded={isMenuOpen}
-                    aria-label="Toggle navigation"
+                    aria-label="Alternar navegação"
                 >
                     <span className="navbar-toggler-icon"></span>
                 </button>
 
-                <div className={`collapse navbar-collapse${isMenuOpen ? ' show' : ''}`} id="navbarSupportedContent">
-                    <ul className="navbar-nav ms-auto">
-                        <li className={`nav-item${location.pathname.startsWith('/reparacoes') ? ' active' : ''}`}>
-                            <Link className="nav-link" to="/reparacoes">Reparações</Link>
+                <div className={`collapse navbar-collapse ${isMenuOpen ? 'show' : ''}`}>
+                    <ul className="navbar-nav ms-auto align-items-center gap-lg-3">
+
+                        <NavItem to="/reparacoes" isActive={location.pathname.startsWith('/reparacoes')}>
+                            Reparações
+                        </NavItem>
+
+                        <NavItem to="/clientes" isActive={location.pathname.startsWith('/clientes')}>
+                            Clientes
+                        </NavItem>
+
+                        {/* Item de Alarmes com Badge */}
+                        <li className={`nav-item position-relative ${location.pathname.startsWith('/alarmes') ? 'active fw-bold' : ''}`}>
+                            <Link className="nav-link d-flex align-items-center" to="/alarmes">
+                                Alarmes
+                                {totalAlarmes > 0 && (
+                                    <span
+                                        ref={badgeRef}
+                                        className="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger border border-white"
+                                        style={{ fontSize: '0.65rem', padding: '0.35em 0.6em' }}
+                                    >
+                                        {totalAlarmes > 99 ? '99+' : totalAlarmes}
+                                        <span className="visually-hidden">novos alarmes</span>
+                                    </span>
+                                )}
+                            </Link>
                         </li>
-                        <li className={`nav-item${location.pathname.startsWith('/clientes') ? ' active' : ''}`}>
-                            <Link className="nav-link" to="/clientes">Clientes</Link>
-                        </li>
-                        <li className={`nav-item${location.pathname.startsWith('/alarmes') ? ' active' : ''} position-relative`}>
-                            {totalAlarmes > 0 && (
-                                <span
-                                    ref={badgeRef}
-                                    style={{
-                                        display: "inline-block",
-                                        position: "absolute",
-                                        top: "-10px",
-                                        left: "90%",
-                                        transform: "translateX(-50%)",
-                                        transformOrigin: "center",
-                                        background: "#dc3545",
-                                        color: "#fff",
-                                        borderRadius: "10px",
-                                        padding: "1px 6px",
-                                        fontSize: "0.60em",
-                                        fontWeight: "bold",
-                                        zIndex: 2,
-                                        minWidth: "24px",
-                                        textAlign: "center",
-                                        marginTop: "5px",
-                                    }}
-                                >
-                                    {totalAlarmes > 99 ? "99+" : totalAlarmes}
-                                </span>
-                            )}
-                            <Link className="nav-link" to="/alarmes">Alarmes</Link>
-                        </li>
+
                     </ul>
                 </div>
             </div>

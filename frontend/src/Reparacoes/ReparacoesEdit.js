@@ -1,1703 +1,504 @@
 "use client"
 
-import { useState, useEffect, useCallback, useMemo } from "react"
+import { useState, useEffect, useMemo, useRef } from "react"
 import axios from "axios"
 import { useNavigate, useParams } from "react-router-dom"
 import "bootstrap/dist/css/bootstrap.min.css"
 import "bootstrap-icons/font/bootstrap-icons.css"
 
+// --- CONSTANTES E UTILITÁRIOS ---
+const API_BASE_URL = "http://localhost:8082"
+const formatCurrency = (val) => Number(val).toLocaleString("pt-PT", { style: "currency", currency: "EUR" })
+const formatDateInput = (dateStr) => dateStr ? dateStr.split("T")[0] : ""
+
 function ReparacoesEdit() {
+    // --- ESTADOS ---
+    const { id } = useParams()
+    const navigate = useNavigate()
+
+    // Dados Principais
     const [form, setForm] = useState({
-        dataentrega: "",
-        datasaida: "",
-        dataconclusao: "",
-        estadoorcamento: "",
-        estadoreparacao: "",
-        localcentro: "",
-        nomecentro: "",
-        nomemaquina: "",
-        numreparacao: "",
-        cliente_id: "",
-        descricao: "",
+        dataentrega: "", datasaida: "", dataconclusao: "",
+        estadoorcamento: "", estadoreparacao: "",
+        localcentro: "", nomecentro: "", nomemaquina: "",
+        numreparacao: "", cliente_id: "", descricao: "",
     })
     const [originalForm, setOriginalForm] = useState({})
-    const [centros, setCentros] = useState([])
-    const [orcamentos, setOrcamentos] = useState([])
-    const [reparacoes, setReparacoes] = useState([])
-    const [clientes, setClientes] = useState([])
-    const [erro, setErro] = useState("")
-    const [loading, setLoading] = useState(true)
-    const [saving, setSaving] = useState(false)
-    const [loadingData, setLoadingData] = useState(true)
-    const [validationErrors, setValidationErrors] = useState({})
-    const navigate = useNavigate()
-    const { id } = useParams()
 
-    // Estados para peças com preços e descontos
-    const [pecasNecessarias, setPecasNecessarias] = useState([])
-    const [originalPecas, setOriginalPecas] = useState([])
-    const [novaPeca, setNovaPeca] = useState({
-        tipopeca: "",
-        marca: "",
-        quantidade: 1,
-        preco_unitario: 0,
-        desconto_percentual: 0,
-        tipo_desconto: "percentual", // Fixo em percentual
-        observacao: "",
+    // Dados Auxiliares (Listas)
+    const [auxData, setAuxData] = useState({
+        centros: [], orcamentos: [], reparacoes: [], clientes: [], pecasExistentes: []
     })
 
-    const [showTextoRow, setShowTextoRow] = useState(false)
-    const [textoLinha, setTextoLinha] = useState("")
-    const [editingTextoId, setEditingTextoId] = useState(null)
-    const [editingTextoVal, setEditingTextoVal] = useState("")
-    const [pecasExistentes, setPecasExistentes] = useState([])
-    const [mostrarPecas, setMostrarPecas] = useState(false)
-    const [loadingPecas, setLoadingPecas] = useState(false)
+    // --- GESTÃO DE PEÇAS (ATUALIZADA) ---
+    const novaPecaInicial = {
+        tipopeca: "", marca: "", quantidade: 1, preco_unitario: 0,
+        desconto_percentual: 0, tipo_desconto: "percentual", observacao: ""
+    }
+    const [pecasNecessarias, setPecasNecessarias] = useState([])
+    const [originalPecas, setOriginalPecas] = useState([])
+    const [novaPeca, setNovaPeca] = useState(novaPecaInicial)
 
-    // Estados financeiros
+    // NOVO: Estado para controlar ID em edição
+    const [editingId, setEditingId] = useState(null)
+    const tipoPecaInputRef = useRef(null)
+
+    // UI States
+    const [loading, setLoading] = useState(true)
+    const [saving, setSaving] = useState(false)
+    const [erro, setErro] = useState("")
+    const [validationErrors, setValidationErrors] = useState({})
+
+    // Financeiro Local
     const [valorMaoObra, setValorMaoObra] = useState(0)
     const [desconto, setDesconto] = useState(0)
-    const [tipoDesconto, setTipoDesconto] = useState("percentual") // 'percentual' ou 'valor'
+    const [tipoDesconto, setTipoDesconto] = useState("percentual")
 
-    // Cálculos automáticos usando useMemo para otimização
-    const totalPecasSemDesconto = useMemo(() => {
-        return pecasNecessarias.reduce((total, peca) => {
-            const precoOriginal = (Number(peca.preco_unitario) || 0) * (Number(peca.quantidade) || 1)
-            return total + precoOriginal
-        }, 0)
-    }, [pecasNecessarias])
+    // --- CARREGAMENTO DE DADOS ---
+    useEffect(() => {
+        const loadAllData = async () => {
+            setLoading(true)
+            try {
+                const [centrosRes, orcRes, repRes, pecasRes, cliRes] = await Promise.all([
+                    axios.get(`${API_BASE_URL}/centros`),
+                    axios.get(`${API_BASE_URL}/orcamentos`),
+                    axios.get(`${API_BASE_URL}/estadoReparacoes`),
+                    axios.get(`${API_BASE_URL}/pecas`).catch(() => ({ data: [] })),
+                    axios.get(`${API_BASE_URL}/clientes`)
+                ])
 
-    const totalDescontosPecas = useMemo(() => {
-        return pecasNecessarias.reduce((total, peca) => {
-            const precoUnitario = Number(peca.preco_unitario) || 0
-            const quantidade = Number(peca.quantidade) || 1
-            let descontoUnitario = 0
+                setAuxData({
+                    centros: centrosRes.data,
+                    orcamentos: orcRes.data,
+                    reparacoes: repRes.data,
+                    pecasExistentes: pecasRes.data || [],
+                    clientes: cliRes.data
+                })
 
-            if (peca.tipo_desconto === "percentual") {
-                descontoUnitario = precoUnitario * ((Number(peca.desconto_percentual) || 0) / 100)
-            } else {
-                descontoUnitario = Number(peca.desconto_unitario) || 0
-            }
+                const reparacaoRes = await axios.get(`${API_BASE_URL}/reparacoes/${id}`)
+                const data = reparacaoRes.data
 
-            return total + descontoUnitario * quantidade
-        }, 0)
-    }, [pecasNecessarias])
-
-    const totalPecas = useMemo(() => {
-        return pecasNecessarias.reduce((total, peca) => {
-            return total + (Number(peca.preco_total) || 0)
-        }, 0)
-    }, [pecasNecessarias])
-
-    const valorDesconto = useMemo(() => {
-        if (tipoDesconto === "percentual") {
-            return valorMaoObra * (desconto / 100)
-        }
-        return Number(desconto) || 0
-    }, [valorMaoObra, desconto, tipoDesconto])
-
-    const totalGeral = useMemo(() => {
-        return Math.max(0, totalPecas + (valorMaoObra - valorDesconto))
-    }, [totalPecas, valorMaoObra, valorDesconto])
-
-    const valorIva = useMemo(() => {
-        return Math.max(0, totalGeral) * 0.23
-    }, [totalGeral])
-
-    const totalComIva = useMemo(() => {
-        return Math.max(0, totalGeral) + valorIva;
-    }, [totalGeral]);
-
-    // Função para calcular preço com desconto de uma peça
-    const calcularPrecoComDesconto = useCallback((peca) => {
-        const precoUnitario = Number(peca.preco_unitario) || 0
-        const descontoPercentual = Number(peca.desconto_percentual) || 0
-        const descontoUnitario = precoUnitario * (descontoPercentual / 100)
-
-        return Math.max(0, precoUnitario - descontoUnitario)
-    }, [])
-
-    // Função para carregar dados auxiliares
-    const carregarDadosAuxiliares = useCallback(() => {
-        setLoadingData(true)
-
-        const promises = [
-            axios.get("http://localhost:8082/centros"),
-            axios.get("http://localhost:8082/orcamentos"),
-            axios.get("http://localhost:8082/estadoReparacoes"),
-            axios.get("http://localhost:8082/pecas"),
-            axios.get("http://localhost:8082/clientes"),
-        ]
-
-        Promise.allSettled(promises)
-            .then(([centrosResult, orcamentosResult, reparacoesResult, pecasResult, clientesResult]) => {
-                setCentros(centrosResult.status === "fulfilled" ? centrosResult.value.data : [])
-                setOrcamentos(orcamentosResult.status === "fulfilled" ? orcamentosResult.value.data : [])
-                setReparacoes(reparacoesResult.status === "fulfilled" ? reparacoesResult.value.data : [])
-                setPecasExistentes(pecasResult.status === "fulfilled" ? pecasResult.value.data : [])
-                setClientes(clientesResult.status === "fulfilled" ? clientesResult.value.data : [])
-            })
-            .finally(() => setLoadingData(false))
-    }, [])
-
-    // Função para carregar dados da reparação
-    const carregarReparacao = useCallback(() => {
-        setLoading(true)
-        setErro("")
-
-        axios
-            .get(`http://localhost:8082/reparacoes/${id}`)
-            .then((response) => {
-                const data = response.data
                 const formattedData = {
                     ...data,
-                    dataentrega: data.dataentrega ? data.dataentrega.split("T")[0] : "",
-                    datasaida: data.datasaida ? data.datasaida.split("T")[0] : "",
-                    dataconclusao: data.dataconclusao ? data.dataconclusao.split("T")[0] : "",
-                    numreparacao: data.numreparacao || "",
-                    descricao: data.descricao || "",
+                    dataentrega: formatDateInput(data.dataentrega),
+                    datasaida: formatDateInput(data.datasaida),
+                    dataconclusao: formatDateInput(data.dataconclusao),
                     cliente_id: String(data.cliente_id || ""),
                 }
 
                 setForm(formattedData)
                 setOriginalForm(formattedData)
-
-                // Carregar valores financeiros
-                setValorMaoObra(Number(data.valor_mao_obra) || Number(data.mao_obra) || 0)
+                setValorMaoObra(Number(data.mao_obra) || 0)
                 setDesconto(Number(data.desconto) || 0)
                 setTipoDesconto(data.tipo_desconto || "percentual")
 
-                const orcamentoAceito =
-                    formattedData.estadoorcamento?.toLowerCase().includes("em processo") ||
-                    formattedData.estadoorcamento?.toLowerCase().includes("aceite") ||
-                    formattedData.estadoorcamento?.toLowerCase().includes("aceito")
-
-                setMostrarPecas(orcamentoAceito)
-
-                if (orcamentoAceito) {
-                    carregarPecasReparacao(data.id)
+                try {
+                    const pecasRes = await axios.get(`${API_BASE_URL}/reparacoes/${data.id}/pecas`)
+                    const pecasFormatadas = pecasRes.data.map(p => ({
+                        ...p,
+                        quantidade: Number(p.quantidade) || 1,
+                        preco_unitario: Number(p.preco_unitario) || 0,
+                        desconto_percentual: Number(p.desconto_percentual) || 0,
+                        preco_total: Number(p.preco_total) || 0,
+                        existeNoSistema: p.existe_no_sistema === 1
+                    }))
+                    setPecasNecessarias(pecasFormatadas)
+                    setOriginalPecas(JSON.parse(JSON.stringify(pecasFormatadas)))
+                } catch (e) {
+                    console.warn("Sem peças associadas")
                 }
-            })
-            .catch((error) => {
-                console.error("Erro ao buscar reparação:", error)
-                setErro("Erro ao buscar reparação.")
-            })
-            .finally(() => setLoading(false))
+
+            } catch (err) {
+                console.error(err)
+                setErro("Erro ao carregar dados.")
+            } finally {
+                setLoading(false)
+            }
+        }
+        loadAllData()
     }, [id])
 
-    // Função para carregar peças da reparação com informações de desconto
-    const carregarPecasReparacao = useCallback((reparacaoId) => {
-        setLoadingPecas(true)
+    // --- CÁLCULOS FINANCEIROS ---
+    const financeiros = useMemo(() => {
+        let totalPecas = 0
+        let totalDescontosPecas = 0
 
-        axios
-            .get(`http://localhost:8082/reparacoes/${reparacaoId}/pecas`)
-            .then((response) => {
-                const pecas = response.data.map((peca) => ({
-                    ...peca,
-                    id: peca.id,
-                    quantidade: Number(peca.quantidade) || 1,
-                    preco_unitario: Number(peca.preco_unitario) || 0,
-                    desconto_unitario: Number(peca.desconto_unitario) || 0,
-                    desconto_percentual: Number(peca.desconto_percentual) || 0,
-                    tipo_desconto: peca.tipo_desconto || "percentual",
-                    preco_com_desconto: Number(peca.preco_com_desconto) || Number(peca.preco_unitario) || 0,
-                    preco_total: Number(peca.preco_total) || 0,
-                    observacoes: peca.observacoes || "",
-                    existeNoSistema: peca.existe_no_sistema === 1,
-                }))
+        pecasNecessarias.forEach(p => {
+            if (p.is_text) return
+            const pu = Number(p.preco_unitario) || 0
+            const qtd = Number(p.quantidade) || 1
+            const descPct = Number(p.desconto_percentual) || 0
+            const precoComDesc = Math.max(0, pu * (1 - descPct / 100))
 
-                setPecasNecessarias(pecas)
-                // Sempre faça deep copy para evitar mutação acidental
-                setOriginalPecas(JSON.parse(JSON.stringify(pecas)))
-            })
-            .catch((error) => {
-                console.error("Erro ao carregar peças da reparação:", error)
-                setErro("Erro ao carregar peças da reparação.")
-                setPecasNecessarias([])
-                setOriginalPecas([])
-            })
-            .finally(() => setLoadingPecas(false))
-    }, [])
-
-    useEffect(() => {
-        carregarDadosAuxiliares()
-        carregarReparacao()
-    }, [carregarDadosAuxiliares, carregarReparacao])
-
-    // Verificar se deve mostrar campo de peças quando o estado do orçamento muda
-    useEffect(() => {
-        const orcamentoAceito =
-            form.estadoorcamento?.toLowerCase().includes("em processo") ||
-            form.estadoorcamento?.toLowerCase().includes("aceite") ||
-            form.estadoorcamento?.toLowerCase().includes("aceito")
-
-        setMostrarPecas(orcamentoAceito)
-
-        if (!orcamentoAceito) {
-            setPecasNecessarias([])
-        }
-    }, [form.estadoorcamento])
-
-    const handleChange = useCallback(
-        (e) => {
-            const { name, value } = e.target
-            setForm((prev) => ({ ...prev, [name]: value }))
-
-            if (validationErrors[name]) {
-                setValidationErrors((prev) => ({ ...prev, [name]: "" }))
-            }
-        },
-        [validationErrors],
-    )
-
-    const handleClienteChange = useCallback((e) => {
-        const clienteId = String(e.target.value)
-        setForm((prev) => ({ ...prev, cliente_id: clienteId }))
-    }, [])
-
-    const handleCentroChange = useCallback(
-        (e) => {
-            const centroId = e.target.value
-            const centroSelecionado = centros.find((c) => String(c.id) === String(centroId))
-            setForm((prev) => ({
-                ...prev,
-                nomecentro: centroSelecionado ? centroSelecionado.nome : "",
-                localcentro: centroSelecionado ? centroSelecionado.local : "",
-            }))
-        },
-        [centros],
-    )
-
-    const handleOrcamentoChange = useCallback(
-        (e) => {
-            const orcamentoId = e.target.value
-            const orcamentoSelecionado = orcamentos.find((o) => String(o.id) === String(orcamentoId))
-            const novoEstadoOrcamento = orcamentoSelecionado ? orcamentoSelecionado.estado : ""
-            let novoEstadoReparacao = form.estadoreparacao
-            let novaDataConclusao = form.dataconclusao
-
-            if (novoEstadoOrcamento?.toLowerCase().includes("recusado")) {
-                const hoje = new Date().toISOString().split("T")[0]
-                novaDataConclusao = hoje
-                novoEstadoReparacao = "Sem reparação"
-            } else {
-                // Se o orçamento não for recusado, reverter para o estado original ou "Em reparação"
-                // Apenas se o estado atual for "Sem reparação" devido a um orçamento recusado anterior
-                if (form.estadoreparacao === "Sem reparação") {
-                    novoEstadoReparacao = "Em reparação" // Ou outro estado padrão
-                }
-                novaDataConclusao = ""
-            }
-
-            setForm((prev) => ({
-                ...prev,
-                estadoorcamento: novoEstadoOrcamento,
-                estadoreparacao: novoEstadoReparacao,
-                dataconclusao: novaDataConclusao,
-            }))
-        },
-        [orcamentos, form.estadoreparacao, form.dataconclusao],
-    )
-
-
-    const handleEstadoreparacaoChange = useCallback(
-        (e) => {
-            const estadareparacaoId = e.target.value
-            const estadareparacaoSelecionado = reparacoes.find((o) => String(o.id) === String(estadareparacaoId))
-            setForm((prev) => ({
-                ...prev,
-                estadoreparacao: estadareparacaoSelecionado ? estadareparacaoSelecionado.estado : "",
-            }))
-        },
-        [reparacoes],
-    )
-
-    // Funções para gerenciar peças com desconto
-    const handleNovaPecaChange = (e) => {
-        const { name, value } = e.target;
-        let val = value;
-        if (name === "preco_unitario" || name === "desconto_unitario") {
-            val = val.replace(',', '.');
-            val = val === "" ? "" : Number.parseFloat(val);
-        } else if (["quantidade", "desconto_percentual"].includes(name)) {
-            val = val === "" ? "" : Number.parseFloat(val);
-        }
-        setNovaPeca((prev) => ({
-            ...prev,
-            [name]: val,
-        }));
-    };
-
-    const verificarPecaExistente = useCallback(
-        (tipopeca, marca) => {
-            return pecasExistentes.find(
-                (peca) =>
-                    peca.tipopeca.toLowerCase().trim() === tipopeca.toLowerCase().trim() &&
-                    peca.marca.toLowerCase().trim() === marca.toLowerCase().trim(),
-            )
-        },
-        [pecasExistentes],
-    )
-
-
-
-    const adicionarPeca = useCallback(() => {
-        if (!novaPeca.tipopeca.trim() || !novaPeca.marca.trim()) {
-            setErro("Tipo de peça e marca são obrigatórios.")
-            return
-        }
-
-        if (novaPeca.quantidade < 1) {
-            setErro("Quantidade deve ser maior que zero.")
-            return
-        }
-
-        if (novaPeca.preco_unitario < 0) {
-            setErro("Preço unitário deve ser maior que zero.")
-            return
-        }
-
-        const pecaJaAdicionada = pecasNecessarias.find(
-            (peca) =>
-                peca.tipopeca.toLowerCase().trim() === novaPeca.tipopeca.toLowerCase().trim() &&
-                peca.marca.toLowerCase().trim() === novaPeca.marca.toLowerCase().trim(),
-        )
-
-        if (pecaJaAdicionada) {
-            setErro("Esta peça já foi adicionada à lista.")
-            return
-        }
-
-        const pecaExistente = verificarPecaExistente(novaPeca.tipopeca, novaPeca.marca)
-
-        // Calcular preço com desconto (apenas percentual)
-        const descontoUnitario = novaPeca.preco_unitario * (novaPeca.desconto_percentual / 100)
-        const precoComDesconto = Math.max(0, novaPeca.preco_unitario - descontoUnitario)
-        const preco_total = novaPeca.quantidade * precoComDesconto
-
-        const novaPecaCompleta = {
-            ...novaPeca,
-            id: Date.now(),
-            preco_com_desconto: precoComDesconto,
-            preco_total,
-            existeNoSistema: !!pecaExistente,
-            pecaExistente: pecaExistente || null,
-            isNew: true,
-        }
-
-        setPecasNecessarias((prev) => [...prev, novaPecaCompleta])
-        setNovaPeca({
-            tipopeca: "",
-            marca: "",
-            quantidade: 1,
-            preco_unitario: 0,
-            desconto_percentual: 0,
-            tipo_desconto: "percentual",
-            observacao: "",
+            totalPecas += (precoComDesc * qtd)
+            totalDescontosPecas += ((pu - precoComDesc) * qtd)
         })
-        setErro("")
-    }, [novaPeca, pecasNecessarias, verificarPecaExistente])
 
-    const removerPeca = useCallback((id) => {
-        setPecasNecessarias((prev) => prev.filter((peca) => peca.id !== id))
-    }, [])
+        const valorDescMO = tipoDesconto === "percentual"
+            ? valorMaoObra * (desconto / 100)
+            : Number(desconto) || 0
 
-    const atualizarPeca = useCallback((pecaId, campo, valor) => {
-        setPecasNecessarias((prev) =>
-            prev.map((peca) => {
-                if (peca.id === pecaId) {
-                    const novaPeca = { ...peca, [campo]: valor };
+        const totalGeral = Math.max(0, totalPecas + (valorMaoObra - valorDescMO))
+        const iva = totalGeral * 0.23
 
-                    // Validações
-                    if (campo === "desconto_percentual" && Number(novaPeca.desconto_percentual) > 100) {
-                        novaPeca.desconto_percentual = "100";
-                    }
+        return {
+            totalPecas,
+            totalDescontosPecas,
+            valorDescMO,
+            subtotalMO: valorMaoObra - valorDescMO,
+            totalGeral,
+            iva,
+            totalComIva: totalGeral + iva
+        }
+    }, [pecasNecessarias, valorMaoObra, desconto, tipoDesconto])
 
-                    // Sempre converte para número na hora do cálculo
-                    const precoUnitario = parseFloat(novaPeca.preco_unitario?.toString().replace(',', '.')) || 0;
-                    const quantidade = parseFloat(novaPeca.quantidade) || 1;
-                    const descontoPercentual = parseFloat(novaPeca.desconto_percentual) || 0;
-                    const descontoUnitario = precoUnitario * (descontoPercentual / 100);
+    // --- FUNÇÕES DE GESTÃO DE PEÇAS (EDITAR/ADICIONAR) ---
 
-                    novaPeca.preco_com_desconto = Math.max(0, precoUnitario - descontoUnitario);
-                    novaPeca.preco_total = quantidade * novaPeca.preco_com_desconto;
+    const handleNovaPecaChange = (e) => {
+        const { name, value } = e.target
+        setNovaPeca(prev => ({ ...prev, [name]: value }))
+    }
 
-                    return novaPeca;
-                }
-                return peca;
-            }),
+    // Função Unificada para Adicionar ou Atualizar Peça
+    const gerirPeca = () => {
+        if (!novaPeca.tipopeca || !novaPeca.marca) return alert("Preencha tipo e marca")
+
+        const pu = parseFloat(String(novaPeca.preco_unitario).replace(',', '.')) || 0
+        const descPct = parseFloat(novaPeca.desconto_percentual) || 0
+        const qtd = parseFloat(novaPeca.quantidade) || 1
+
+        const precoComDesc = Math.max(0, pu - (pu * (descPct / 100)))
+        const total = qtd * precoComDesc
+
+        // Verificar se existe na lista geral (para marcar a flag existeNoSistema)
+        const existeNaBD = !!auxData.pecasExistentes.find(p =>
+            p.tipopeca === novaPeca.tipopeca && p.marca === novaPeca.marca
         );
-    }, []);
 
-    const iniciarEdicaoTexto = useCallback((peca) => {
-        setEditingTextoId(peca.id)
-        setEditingTextoVal(String(peca.texto ?? peca.observacao ?? peca.tipopeca ?? ""))
-    }, [])
+        const dadosPeca = {
+            ...novaPeca,
+            preco_unitario: pu,
+            desconto_percentual: descPct,
+            preco_total: total,
+            preco_com_desconto: precoComDesc,
+            existeNoSistema: existeNaBD
+        }
 
-    const cancelarEdicaoTexto = useCallback(() => {
-        setEditingTextoId(null)
-        setEditingTextoVal("")
-    }, [])
-
-    const salvarEdicaoTexto = useCallback(() => {
-        const novo = (editingTextoVal || "").trim()
-        if (!novo) return
-        setPecasNecessarias(prev => prev.map(p => p.id === editingTextoId ? { ...p, texto: novo } : p)
-        )
-        setEditingTextoId(null)
-        setEditingTextoVal("")
-    }, [editingTextoId, editingTextoVal])
-
-    const adicionarLinhaTexto = useCallback(() => {
-        const texto = (textoLinha || "").trim();
-        if (!texto) return;
-
-        setPecasNecessarias(prev => [
-            ...prev,
-            {
-                id: Date.now(),
-                is_text: 1,
-                texto,
-                tipopeca: "",
-                marca: "texto",
-                quantidade: 0,
-                preco_unitario: 0,
-                desconto_percentual: 0,
-
-                tipo_desconto: "nenhum",
-                observacao: "",
-                ordem: (prev.length || 0) + 1,
-            }
-        ]);
-
-        setTextoLinha("");
-        setShowTextoRow(false);
-    }, [textoLinha]);
-
-    const iniciarEdicaoPeca = useCallback((peca) => {
-        setNovaPeca({ ...peca })
-        removerPeca(peca.id)
-        setErro("")
-    }, [removerPeca])
-
-
-    const buscarPecasSimilares = useCallback(
-        (tipopeca) => {
-            if (!tipopeca.trim()) return []
-            return pecasExistentes
-                .filter((peca) => peca.tipopeca.toLowerCase().includes(tipopeca.toLowerCase().trim()))
-                .slice(0, 5)
-        },
-        [pecasExistentes],
-    )
-
-    const validateForm = useCallback(() => {
-        const errors = {}
-
-        if (!String(form.numreparacao).trim()) {
-            errors.numreparacao = "Número de reparação é obrigatório";
+        if (editingId) {
+            // ATUALIZAR peça existente
+            setPecasNecessarias(prev => prev.map(p => p.id === editingId ? { ...dadosPeca, id: editingId } : p))
+            setEditingId(null)
         } else {
-            const duplicado = reparacoes.some(
-                (r) =>
-                    r.numreparacao &&
-                    String(r.numreparacao).trim().toLowerCase() === String(form.numreparacao).trim().toLowerCase() &&
-                    String(r.id) !== String(form.id) // compara os IDs corretamente
-            );
-            if (duplicado) {
-                errors.numreparacao = "Número de reparação já existe";
-            }
+            // ADICIONAR nova peça
+            setPecasNecessarias(prev => [...prev, { ...dadosPeca, id: Date.now(), isNew: true }])
         }
 
-        if (!form.dataentrega) {
-            errors.dataentrega = "Data de entrada é obrigatória"
-        }
+        // Reset do formulário
+        setNovaPeca(novaPecaInicial)
+        setTimeout(() => tipoPecaInputRef.current?.focus(), 100)
+    }
 
-        if (!form.nomemaquina.trim()) {
-            errors.nomemaquina = "Nome da máquina é obrigatório"
-        }
+    // Inicia o modo de edição
+    const iniciarEdicao = (peca) => {
+        if (peca.is_text) return
+        setEditingId(peca.id)
+        setNovaPeca({
+            tipopeca: peca.tipopeca,
+            marca: peca.marca,
+            quantidade: peca.quantidade,
+            preco_unitario: peca.preco_unitario,
+            desconto_percentual: peca.desconto_percentual,
+            tipo_desconto: "percentual",
+            observacao: peca.observacao || ""
+        })
+        tipoPecaInputRef.current?.focus()
+    }
 
-        if (!form.estadoreparacao) {
-            errors.estadoreparacao = "Estado da reparação é obrigatório"
-        }
+    // Cancela o modo de edição
+    const cancelarEdicao = () => {
+        setEditingId(null)
+        setNovaPeca(novaPecaInicial)
+    }
 
-        if (!form.nomecentro) {
-            errors.nomecentro = "Centro de reparação é obrigatório"
-        }
+    const removerPeca = (id) => {
+        setPecasNecessarias(prev => prev.filter(p => p.id !== id))
+        if (editingId === id) cancelarEdicao()
+    }
 
-        if (!form.cliente_id) {
-            errors.cliente_id = "Cliente é obrigatório"
-        }
+    const adicionarLinhaTexto = () => {
+        const texto = prompt("Digite o texto da nota:")
+        if (!texto) return
+        setPecasNecessarias(prev => [...prev, {
+            id: Date.now(), is_text: 1, texto, marca: "texto", quantidade: 0, preco_total: 0
+        }])
+    }
 
-        // Validar datas
-        if (form.dataconclusao && new Date(form.dataconclusao) < new Date(form.dataentrega)) {
-            errors.dataconclusao = "Data de conclusão deve ser posterior à data de entrada"
-        }
+    // --- HANDLERS GERAIS ---
+    const handleChange = (e) => setForm(prev => ({ ...prev, [e.target.name]: e.target.value }))
 
-        if (form.datasaida && form.dataconclusao && new Date(form.datasaida) < new Date(form.dataconclusao)) {
-            errors.datasaida = "Data de saída deve ser posterior à data de conclusão"
-        }
-
-        setValidationErrors(errors)
-        return Object.keys(errors).length === 0
-    }, [form, reparacoes, id])
-
-    const hasChanges = useCallback(() => {
-        const formChanged = JSON.stringify(form) !== JSON.stringify(originalForm)
-        const pecasChanged = JSON.stringify(pecasNecessarias) !== JSON.stringify(originalPecas)
-        const valoresChanged =
-            valorMaoObra !== (Number(originalForm.valor_mao_obra) || Number(originalForm.mao_obra) || 0) ||
-            desconto !== (Number(originalForm.desconto) || 0) ||
-            tipoDesconto !== (originalForm.tipo_desconto || "percentual")
-
-        return formChanged || pecasChanged || valoresChanged
-    }, [form, originalForm, pecasNecessarias, originalPecas, valorMaoObra, desconto, tipoDesconto])
-
-    const getStatus = useCallback(() => {
-        if (form.datasaida) return { text: "Entregue", class: "bg-success" }
-        if (form.dataconclusao) return { text: "Pronta", class: "bg-info" }
-        if (form.dataentrega) return { text: "Em Andamento", class: "bg-warning text-dark" }
-        if (form.estadoreparacao === "Sem reparação") return { text: "Sem Reparação", class: "bg-danger" }
-        return { text: "Pendente", class: "bg-secondary" }
-    }, [form])
-
-    const handleSubmit = useCallback(
-        (e) => {
-            e.preventDefault()
-            setErro("")
-            if (!validateForm()) return
-            if (!hasChanges()) {
-                alert("Nenhuma alteração foi feita.")
-                return
-            }
-            setSaving(true)
-
-            const formToSend = {
+    const handleSubmit = async (e) => {
+        e.preventDefault()
+        setSaving(true)
+        try {
+            const payload = {
                 ...form,
                 valor_mao_obra: valorMaoObra,
                 mao_obra: valorMaoObra,
                 desconto,
                 tipo_desconto: tipoDesconto,
-                total_pecas: totalPecas,
-                total_geral: totalGeral,
+                total_geral: financeiros.totalGeral
             }
+            await axios.put(`${API_BASE_URL}/reparacoes/${id}`, payload)
 
-            axios.put(`http://localhost:8082/reparacoes/${id}`, formToSend)
-                .then(() => {
-                    if (mostrarPecas && pecasNecessarias.length > 0) {
-                        const pecasParaEnvio = pecasNecessarias.map((p, idx) => {
-                            const isText = p.is_text === 1 || p.isText === true
-                            return {
-                                tipopeca: isText ? null : p.tipopeca,
-                                marca: isText ? "texto" : (p.marca || ""),
-                                quantidade: isText ? 0 : (Number(p.quantidade) || 1),
-                                preco_unitario: isText ? 0 : (Number(p.preco_unitario) || 0),
-                                desconto_percentual: isText ? 0 : (Number(p.desconto_percentual) || 0),
-                                tipo_desconto: isText ? "nenhum" : (p.tipo_desconto || "percentual"),
-                                observacao: isText ? null : (p.observacao || ""),
-                                existe_no_sistema: isText ? 0 : (p.existe_no_sistema || p.existeNoSistema ? 1 : 0),
-                                is_text: isText ? 1 : 0,
-                                texto: isText ? String(p.texto ?? p.observacao ?? p.tipopeca ?? "").trim() : null,
-                                ordem: p.ordem != null ? p.ordem : (idx + 1),
-                            }
-                        })
+            const pecasPayload = pecasNecessarias.map((p, idx) => ({
+                ...p,
+                tipopeca: p.is_text ? null : p.tipopeca,
+                texto: p.is_text ? (p.texto || p.tipopeca) : null,
+                ordem: idx + 1,
+                existe_no_sistema: p.existeNoSistema ? 1 : 0
+            }))
 
-                        return axios.put(`http://localhost:8082/reparacoes/${id}/pecas`, {
-                            pecasNecessarias: pecasParaEnvio,
-                        })
-                    }
-                    return Promise.resolve()
-                })
-                .then(() => {
-                    alert("Reparação atualizada com sucesso!")
-                    navigate("/reparacoes")
-                })
-                .catch((error) => {
-                    console.error("Erro ao atualizar reparação:", error)
-                    setErro("Erro ao atualizar reparação.")
-                })
-                .finally(() => setSaving(false))
-        },
-        [
-            form, validateForm, hasChanges, valorMaoObra, desconto, tipoDesconto,
-            totalPecas, totalGeral, mostrarPecas, pecasNecessarias, id, navigate
-        ]
-    )
-
-    const handleCancel = useCallback(() => {
-        if (hasChanges()) {
-            if (window.confirm("Tem certeza que deseja cancelar? Todas as alterações serão perdidas.")) {
-                navigate("/reparacoes")
-            }
-        } else {
+            await axios.put(`${API_BASE_URL}/reparacoes/${id}/pecas`, { pecasNecessarias: pecasPayload })
+            alert("Guardado com sucesso!")
             navigate("/reparacoes")
+        } catch (err) {
+            setErro("Erro ao salvar alterações")
+        } finally {
+            setSaving(false)
         }
-    }, [hasChanges, navigate])
-
-    const handleReset = useCallback(() => {
-        if (window.confirm("Tem certeza que deseja restaurar os valores originais?")) {
-            setForm(originalForm)
-            // Sempre use deep copy para restaurar o estado original das peças
-            setPecasNecessarias(JSON.parse(JSON.stringify(originalPecas)))
-            setValorMaoObra(Number(originalForm.valor_mao_obra) || Number(originalForm.mao_obra) || 0)
-            setDesconto(Number(originalForm.desconto) || 0)
-            setTipoDesconto(originalForm.tipo_desconto || "percentual")
-            setValidationErrors({})
-            setErro("")
-            setNovaPeca({
-                tipopeca: "",
-                marca: "",
-                quantidade: 1,
-                preco_unitario: 0,
-                desconto_percentual: 0,
-                tipo_desconto: "percentual",
-                observacoes: "",
-            })
-        }
-    }, [originalForm, originalPecas])
-
-    // Memoized values
-    const status = useMemo(() => getStatus(), [getStatus])
-    const pecasSimilares = useMemo(
-        () => buscarPecasSimilares(novaPeca.tipopeca),
-        [buscarPecasSimilares, novaPeca.tipopeca],
-    )
-    const clienteSelecionado = useMemo(() => {
-        const cliente = clientes.find((c) => String(c.id) === String(form.cliente_id))
-        return cliente
-    }, [clientes, form.cliente_id])
-
-    // Calcular preview da nova peça
-    const previewNovaPeca = useMemo(() => {
-        if (!novaPeca.tipopeca || !novaPeca.marca || novaPeca.preco_unitario <= 0) return null
-
-        let descontoUnitario = 0
-        if (novaPeca.tipo_desconto === "percentual") {
-            descontoUnitario = novaPeca.preco_unitario * (novaPeca.desconto_percentual / 100)
-        } else {
-            descontoUnitario = novaPeca.desconto_unitario
-        }
-
-        const precoComDesconto = Math.max(0, novaPeca.preco_unitario - descontoUnitario)
-        const economia = descontoUnitario
-        const totalPeca = novaPeca.quantidade * precoComDesconto
-
-        return {
-            precoOriginal: novaPeca.preco_unitario,
-            precoComDesconto,
-            economia,
-            totalPeca,
-            temDesconto: economia > 0,
-            percentualDesconto:
-                novaPeca.tipo_desconto === "percentual"
-                    ? novaPeca.desconto_percentual
-                    : (economia / novaPeca.preco_unitario) * 100,
-        }
-    }, [novaPeca])
-
-    if (loading || loadingData) {
-        return (
-            <div className="container mt-4">
-                <div className="d-flex justify-content-center align-items-center" style={{ height: "400px" }}>
-                    <div className="text-center">
-                        <div className="spinner-border text-primary mb-3" role="status">
-                            <span className="visually-hidden">Carregando...</span>
-                        </div>
-                        <p className="text-muted">Carregando dados da reparação...</p>
-                    </div>
-                </div>
-            </div>
-        )
     }
 
-    if (erro && !form.nomemaquina) {
-        return (
-            <div className="container mt-4">
-                <div className="alert alert-danger d-flex align-items-center" role="alert">
-                    <i className="bi bi-exclamation-triangle-fill me-2"></i>
-                    <div>
-                        <h4 className="alert-heading">Erro!</h4>
-                        <p className="mb-2">{erro}</p>
-                        <button className="btn btn-outline-danger btn-sm" onClick={carregarReparacao}>
-                            <i className="bi bi-arrow-clockwise me-1"></i>
-                            Tentar Novamente
-                        </button>
-                    </div>
-                </div>
-            </div>
-        )
-    }
+    const orcamentoAceito = form.estadoorcamento?.toLowerCase().match(/aceite|aceito|processo/);
+    const pecasSimilares = auxData.pecasExistentes.filter(p => p.tipopeca.toLowerCase().includes(novaPeca.tipopeca.toLowerCase())).slice(0, 5)
+
+    if (loading) return <div className="d-flex justify-content-center align-items-center vh-100"><div className="spinner-border text-primary"></div></div>
 
     return (
-        <div className="container mt-4">
-            <div className="card shadow-sm">
-                <div className="card-header bg-primary text-white">
-                    <div className="d-flex justify-content-between align-items-center">
+        <div className="container-fluid bg-light min-vh-100 pb-5">
+            <div className="bg-white border-bottom py-3 mb-4 shadow-sm sticky-top" style={{ zIndex: 100 }}>
+                <div className="container d-flex justify-content-between align-items-center">
+                    <div className="d-flex align-items-center gap-3">
+                        <button onClick={() => navigate("/reparacoes")} className="btn btn-light border rounded-circle"><i className="bi bi-arrow-left"></i></button>
                         <div>
-                            <h4 className="mb-0">
-                                <i className="bi bi-tools me-2"></i>
-                                Editar Reparação #{id}
-                            </h4>
-                            <small className="opacity-75">
-                                Status atual: <span className={`badge ${status.class} ms-1`}>{status.text}</span>
-                            </small>
+                            <h4 className="mb-0 fw-bold">Editar Reparação #{form.numreparacao || id}</h4>
+                            <span className="text-muted small">{form.nomemaquina}</span>
                         </div>
-                        <button className="btn btn-light btn-sm" onClick={() => navigate("/reparacoes")}>
-                            <i className="bi bi-arrow-left me-1"></i>
-                            Voltar
+                    </div>
+                    <div className="d-flex gap-2">
+                        <button className="btn btn-outline-secondary" onClick={() => navigate("/reparacoes")}>Cancelar</button>
+                        <button className="btn btn-success px-4 fw-bold" onClick={handleSubmit} disabled={saving}>
+                            {saving ? "A guardar..." : <><i className="bi bi-check-lg me-2"></i>Guardar</>}
                         </button>
                     </div>
                 </div>
-
-                <div className="card-body">
-                    {erro && (
-                        <div className="alert alert-danger d-flex align-items-center mb-4" role="alert">
-                            <i className="bi bi-exclamation-triangle-fill me-2"></i>
-                            <div>{erro}</div>
-                        </div>
-                    )}
-
-                    {hasChanges() && (
-                        <div className="alert alert-info d-flex align-items-center mb-4" role="alert">
-                            <i className="bi bi-info-circle-fill me-2"></i>
-                            <div>Você tem alterações não salvas.</div>
-                        </div>
-                    )}
-
-                    {form.estadoorcamento &&
-                        (form.estadoorcamento.toLowerCase().includes("recusado") ||
-                            form.estadoorcamento.toLowerCase().includes("rejeitado") ||
-                            form.estadoorcamento.toLowerCase().includes("negado")) && (
-                            <div className="alert alert-warning d-flex align-items-center mb-4" role="alert">
-                                <i className="bi bi-exclamation-triangle-fill me-2"></i>
-                                <div>
-                                    <strong>Atenção:</strong> Orçamento recusado detectado. O status será automaticamente alterado para
-                                    "Sem reparação" ao salvar.
-                                </div>
-                            </div>
-                        )}
-
-                    <form onSubmit={handleSubmit}>
-                        <div className="row">
-                            {/* Coluna da esquerda */}
-                            <div className="col-md-6">
-                                {/* Informações do Cliente */}
-                                <div className="card mb-3">
-                                    <div className="card-header bg-light">
-                                        <h5 className="mb-0">
-                                            <i className="bi bi-person-fill me-2"></i>
-                                            Informações do Cliente
-                                        </h5>
-                                    </div>
-                                    <div className="card-body">
-                                        <div className="mb-3">
-                                            <label className="form-label">
-                                                <i className="bi bi-person-fill me-1"></i>
-                                                Cliente <span className="text-danger">*</span>
-                                            </label>
-                                            <select
-                                                className={`form-select ${validationErrors.cliente_id ? "is-invalid" : ""}`}
-                                                value={form.cliente_id || ""}
-                                                onChange={handleClienteChange}
-                                                required
-                                            >
-                                                <option value="">Selecione um cliente</option>
-                                                {clientes.map((cliente) => (
-                                                    <option key={cliente.id} value={cliente.id}>
-                                                        {cliente.nome} {cliente.numero_interno ? `(${cliente.numero_interno})` : ""}
-                                                    </option>
-                                                ))}
-                                            </select>
-                                            {validationErrors.cliente_id && (
-                                                <div className="invalid-feedback">{validationErrors.cliente_id}</div>
-                                            )}
-                                        </div>
-
-                                        {clienteSelecionado && (
-                                            <div className="alert alert-info">
-                                                <small>
-                                                    <strong>Cliente selecionado:</strong> {clienteSelecionado.nome}
-                                                    <br />
-                                                    <strong>Contacto:</strong> {clienteSelecionado.telefone || "N/A"}
-                                                    <br />
-                                                    <strong>Nº Interno:</strong> {clienteSelecionado.numero_interno || "N/A"}
-                                                </small>
-                                            </div>
-                                        )}
-                                    </div>
-                                </div>
-
-                                {/* Informações da Máquina */}
-                                <div className="card mb-3">
-                                    <div className="card-header bg-light">
-                                        <h5 className="mb-0">Informações da Máquina</h5>
-                                    </div>
-                                    <div className="card-body">
-                                        <div className="mb-3">
-                                            <label className="form-label">
-                                                <i className="bi bi-hash me-1"></i>
-                                                Número da Reparação
-                                            </label>
-                                            <input
-                                                type="text"
-                                                className={`form-control ${validationErrors.numreparacao ? "is-invalid" : ""}`}
-                                                name="numreparacao"
-                                                value={form.numreparacao || ""}
-                                                onChange={handleChange}
-                                                placeholder="Ex: REP-2023-001"
-                                            />
-                                            {validationErrors.numreparacao && (
-                                                <div className="invalid-feedback">{validationErrors.numreparacao}</div>
-                                            )}
-                                        </div>
-                                        <div className="mb-3">
-                                            <label className="form-label">
-                                                <i className="bi bi-laptop me-1"></i>
-                                                Nome da Máquina <span className="text-danger">*</span>
-                                            </label>
-                                            <input
-                                                type="text"
-                                                className={`form-control ${validationErrors.nomemaquina ? "is-invalid" : ""}`}
-                                                name="nomemaquina"
-                                                value={form.nomemaquina || ""}
-                                                onChange={handleChange}
-                                                placeholder="Ex: Laptop Dell XPS 15"
-                                            />
-                                            {validationErrors.nomemaquina && (
-                                                <div className="invalid-feedback">{validationErrors.nomemaquina}</div>
-                                            )}
-                                        </div>
-                                        <div className="mb-3">
-                                            <label className="form-label">
-                                                <i className="bi bi-chat-left-text me-1"></i>
-                                                Descrição da Reparação
-                                            </label>
-                                            <textarea
-                                                className="form-control"
-                                                name="descricao"
-                                                value={form.descricao || ""}
-                                                onChange={handleChange}
-                                                rows="3"
-                                                placeholder="Descreva o problema ou serviço a ser realizado..."
-                                            />
-                                            <div className="form-text">Descrição detalhada do problema ou serviço</div>
-                                        </div>
-                                        <div className="mb-3">
-                                            <label className="form-label">
-                                                <i className="bi bi-building me-1"></i>
-                                                Centro de Reparação <span className="text-danger">*</span>
-                                            </label>
-                                            <select
-                                                className={`form-select ${validationErrors.nomecentro ? "is-invalid" : ""}`}
-                                                onChange={handleCentroChange}
-                                                value={centros.find((c) => c.nome === form.nomecentro)?.id || ""}
-                                            >
-                                                <option value="">Selecione um centro</option>
-                                                {centros.map((centro) => (
-                                                    <option key={centro.id} value={centro.id}>
-                                                        {centro.nome}
-                                                    </option>
-                                                ))}
-                                            </select>
-                                            {validationErrors.nomecentro && (
-                                                <div className="invalid-feedback">{validationErrors.nomecentro}</div>
-                                            )}
-                                        </div>
-                                    </div>
-                                </div>
-
-                                {/* Estados */}
-                                <div className="card mb-3">
-                                    <div className="card-header bg-light">
-                                        <h5 className="mb-0">Estados</h5>
-                                    </div>
-                                    <div className="card-body">
-                                        <div className="mb-3">
-                                            <label className="form-label">
-                                                <i className="bi bi-cash-coin me-1"></i>
-                                                Estado do Orçamento
-                                            </label>
-                                            <select
-                                                className="form-select"
-                                                onChange={handleOrcamentoChange}
-                                                value={orcamentos.find((o) => o.estado === form.estadoorcamento)?.id || ""}
-                                            >
-                                                <option value="">Selecione o estado do Orçamento</option>
-                                                {orcamentos.map((orc) => (
-                                                    <option key={orc.id} value={orc.id}>
-                                                        {orc.estado}
-                                                    </option>
-                                                ))}
-                                            </select>
-                                        </div>
-
-                                        <div className="mb-3">
-                                            <label className="form-label">
-                                                <i className="bi bi-wrench me-1"></i>
-                                                Estado da Reparação <span className="text-danger">*</span>
-                                            </label>
-                                            <select
-                                                className={`form-select ${validationErrors.estadoreparacao ? "is-invalid" : ""}`}
-                                                onChange={handleEstadoreparacaoChange}
-                                                value={reparacoes.find((r) => r.estado === form.estadoreparacao)?.id || ""}
-                                            >
-                                                <option value="">Selecione o estado da Reparação</option>
-                                                {reparacoes.map((rep) => (
-                                                    <option key={rep.id} value={rep.id}>
-                                                        {rep.estado}
-                                                    </option>
-                                                ))}
-                                            </select>
-                                            {validationErrors.estadoreparacao && (
-                                                <div className="invalid-feedback">{validationErrors.estadoreparacao}</div>
-                                            )}
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-
-                            {/* Coluna da direita */}
-                            <div className="col-md-6">
-                                {/* Cronologia */}
-                                <div className="card mb-3">
-                                    <div className="card-header bg-light">
-                                        <h5 className="mb-0">Cronologia</h5>
-                                    </div>
-                                    <div className="card-body">
-                                        <div className="mb-3">
-                                            <label className="form-label">
-                                                <i className="bi bi-calendar-plus me-1"></i>
-                                                Data de Entrada <span className="text-danger">*</span>
-                                            </label>
-                                            <input
-                                                type="date"
-                                                className={`form-control ${validationErrors.dataentrega ? "is-invalid" : ""}`}
-                                                name="dataentrega"
-                                                value={form.dataentrega || ""}
-                                                onChange={handleChange}
-                                            />
-                                            {validationErrors.dataentrega && (
-                                                <div className="invalid-feedback">{validationErrors.dataentrega}</div>
-                                            )}
-                                            <div className="form-text">Data em que a máquina entrou na loja</div>
-                                        </div>
-
-                                        <div className="mb-3">
-                                            <label className="form-label">
-                                                <i className="bi bi-calendar-check me-1"></i>
-                                                Data de Conclusão
-                                            </label>
-                                            <input
-                                                type="date"
-                                                className={`form-control ${validationErrors.dataconclusao ? "is-invalid" : ""}`}
-                                                name="dataconclusao"
-                                                value={form.dataconclusao || ""}
-                                                onChange={handleChange}
-                                            />
-                                            {validationErrors.dataconclusao && (
-                                                <div className="invalid-feedback">{validationErrors.dataconclusao}</div>
-                                            )}
-                                            <div className="form-text">Data em que a reparação foi concluída</div>
-                                        </div>
-
-                                        <div className="mb-3">
-                                            <label className="form-label">
-                                                <i className="bi bi-calendar-x me-1"></i>
-                                                Data de Saída
-                                            </label>
-                                            <input
-                                                type="date"
-                                                className={`form-control ${validationErrors.datasaida ? "is-invalid" : ""}`}
-                                                name="datasaida"
-                                                value={form.datasaida || ""}
-                                                onChange={handleChange}
-                                            />
-                                            {validationErrors.datasaida && (
-                                                <div className="invalid-feedback">{validationErrors.datasaida}</div>
-                                            )}
-                                            <div className="form-text">Data em que a máquina saiu da loja</div>
-                                        </div>
-                                    </div>
-                                </div>
-
-                                {/* Valores Financeiros */}
-                                <div className="card mb-3">
-                                    <div className="card-header bg-light">
-                                        <h5 className="mb-0">
-                                            <i className="bi bi-currency-euro me-2"></i>
-                                            Valores Financeiros
-                                        </h5>
-                                    </div>
-                                    <div className="card-body">
-                                        <div className="mb-3">
-                                            <label className="form-label">
-                                                <i className="bi bi-person-workspace me-1"></i>
-                                                Valor da Mão de Obra (€)
-                                            </label>
-                                            <input
-                                                type="number"
-                                                className="form-control"
-                                                value={valorMaoObra === 0 ? "" : valorMaoObra}
-                                                onChange={(e) => {
-                                                    const val = e.target.value
-                                                    setValorMaoObra(val === "" ? 0 : Number.parseFloat(val) || 0)
-                                                }}
-                                                min="0"
-                                                step="0.01"
-                                                placeholder="0.00"
-                                            />
-                                        </div>
-
-                                        <div className="mb-3">
-                                            <label className="form-label">
-                                                <i className="bi bi-percent me-1"></i>
-                                                Desconto na Mão de Obra
-                                            </label>
-                                            <div className="input-group">
-                                                <input
-                                                    type="number"
-                                                    className="form-control"
-                                                    value={desconto === 0 ? "" : desconto}
-                                                    onChange={(e) => {
-                                                        const val = e.target.value
-                                                        setDesconto(val === "" ? 0 : Number.parseFloat(val) || 0)
-                                                    }}
-                                                    min="0"
-                                                    step="0.01"
-                                                    placeholder="0"
-                                                />
-                                                <select
-                                                    className="form-select"
-                                                    style={{ maxWidth: "120px" }}
-                                                    value={tipoDesconto}
-                                                    onChange={(e) => setTipoDesconto(e.target.value)}
-                                                >
-                                                    <option value="percentual">%</option>
-                                                    <option value="valor">€</option>
-                                                </select>
-                                            </div>
-                                            <div className="form-text">Desconto aplicado apenas ao valor da mão de obra</div>
-                                        </div>
-
-                                        {/* Resumo Financeiro */}
-                                        <div className="card bg-light">
-                                            <div className="card-body">
-                                                <h6 className="card-title">
-                                                    <i className="bi bi-calculator me-2"></i>
-                                                    Resumo Financeiro
-                                                </h6>
-                                                <div className="row text-center">
-                                                    <div className="col-4">
-                                                        <div className="border-end">
-                                                            <div className="h5 mb-0 text-primary">{totalPecas.toFixed(2)}€</div>
-                                                            <small className="text-muted">Peças</small>
-                                                        </div>
-                                                    </div>
-                                                    <div className="col-4">
-                                                        <div className="border-end">
-                                                            <div className="h5 mb-0 text-info">{(valorMaoObra - valorDesconto).toFixed(2)}€</div>
-                                                            <small className="text-muted">Mão de Obra</small>
-                                                            {valorDesconto > 0 && (
-                                                                <div>
-                                                                    <small className="text-muted text-decoration-line-through">
-                                                                        {valorMaoObra.toFixed(2)}€
-                                                                    </small>
-                                                                </div>
-                                                            )}
-                                                        </div>
-                                                    </div>
-                                                    <div className="col-4">
-                                                        <div className="h5 mb-0 text-success">{totalGeral.toFixed(2)}€</div>
-                                                        <small className="text-muted">Total</small>
-                                                        <div className="col-12">
-                                                            <div className="h5 mb-0 text-danger">{totalComIva.toFixed(2)}€</div>
-                                                            <small className="text-muted">Inclui IVA a 23%</small>
-                                                        </div>
-                                                    </div>
-                                                </div>
-
-                                                {(valorDesconto > 0 || totalDescontosPecas > 0) && (
-                                                    <div className="mt-2 text-center">
-                                                        {totalDescontosPecas > 0 && (
-                                                            <small className="text-warning d-block">
-                                                                <i className="bi bi-tag me-1"></i>
-                                                                Descontos em peças: {totalDescontosPecas.toFixed(2)}€
-                                                            </small>
-                                                        )}
-                                                        {valorDesconto > 0 && (
-                                                            <small className="text-warning d-block">
-                                                                <i className="bi bi-dash-circle me-1"></i>
-                                                                Desconto na mão de obra: {valorDesconto.toFixed(2)}€
-                                                            </small>
-                                                        )}
-                                                    </div>
-                                                )}
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-
-                        {/* Seção de Peças - Aparece apenas quando orçamento é aceito */}
-                        {mostrarPecas && (
-                            <div className="mt-4">
-                                <div className="card">
-                                    <div className="card-header bg-success text-white d-flex justify-content-between align-items-center">
-                                        <h5 className="mb-0">
-                                            <i className="bi bi-wrench-adjustable-circle me-2"></i>
-                                            Peças Necessárias para Reparação
-                                        </h5>
-                                        <span className="badge bg-light text-success">Orçamento Aceito</span>
-                                    </div>
-                                    <div className="card-body">
-                                        {loadingPecas ? (
-                                            <div className="text-center py-4">
-                                                <div className="spinner-border text-primary" role="status">
-                                                    <span className="visually-hidden">Carregando...</span>
-                                                </div>
-                                                <p className="mt-2">Carregando peças...</p>
-                                            </div>
-                                        ) : (
-                                            <>
-                                                {/* Adicionar Nova Peça com Desconto */}
-                                                <div className="card mb-4">
-                                                    <div className="card-header bg-primary text-white">
-                                                        <h6 className="mb-0">
-                                                            <i className="bi bi-plus-circle me-2"></i>
-                                                            Adicionar Peça
-                                                        </h6>
-                                                    </div>
-                                                    <div className="card-body">
-                                                        <div className="row g-3">
-                                                            <div className="col-md-6">
-                                                                <label className="form-label">Designação *</label>
-                                                                <input
-                                                                    type="text"
-                                                                    className="form-control"
-                                                                    name="tipopeca"
-                                                                    value={novaPeca.tipopeca}
-                                                                    onChange={handleNovaPecaChange}
-                                                                    placeholder="Ex: Filtro, Correia..."
-                                                                    list="pecas-sugestoes"
-                                                                />
-                                                                {pecasSimilares.length > 0 && (
-                                                                    <datalist id="pecas-sugestoes">
-                                                                        {pecasSimilares.map((peca, index) => (
-                                                                            <option key={index} value={peca.tipopeca} />
-                                                                        ))}
-                                                                    </datalist>
-                                                                )}
-                                                            </div>
-                                                            <div className="col-md-2">
-                                                                <label className="form-label">Ref. Interna *</label>
-                                                                <input
-                                                                    type="text"
-                                                                    className="form-control"
-                                                                    name="marca"
-                                                                    value={novaPeca.marca}
-                                                                    onChange={handleNovaPecaChange}
-                                                                    placeholder="Ex: Bosch, Mann..."
-                                                                />
-                                                            </div>
-                                                            <div className="col-md-1">
-                                                                <label className="form-label">Qtd*</label>
-                                                                <input
-                                                                    type="number"
-                                                                    className="form-control"
-                                                                    name="quantidade"
-                                                                    value={novaPeca.quantidade}
-                                                                    onChange={handleNovaPecaChange}
-                                                                    min="1"
-                                                                />
-                                                            </div>
-                                                            <div className="col-md-1">
-                                                                <label className="form-label">Preço(€) *</label>
-                                                                <input
-                                                                    type="number"
-                                                                    className="form-control"
-                                                                    name="preco_unitario"
-                                                                    value={novaPeca.preco_unitario}
-                                                                    onChange={(e) => {
-                                                                        let value = e.target.value;
-                                                                        // Troca vírgula por ponto para aceitar ambos
-                                                                        value = value.replace(',', '.');
-                                                                        setNovaPeca((prev) => ({
-                                                                            ...prev,
-                                                                            preco_unitario: value === "" ? "" : Number.parseFloat(value),
-                                                                        }));
-                                                                    }}
-                                                                    min="0"
-                                                                    step="0.01"
-                                                                    placeholder="0.00"
-                                                                />
-                                                            </div>
-                                                            <div className="col-md-2">
-                                                                <label className="form-label">&nbsp;</label>
-                                                                <div
-                                                                    className="position-relative"
-                                                                    title={
-                                                                        !novaPeca.tipopeca
-                                                                            ? "Preencha a designação"
-                                                                            : !novaPeca.marca
-                                                                                ? "Preencha a marca"
-                                                                                : novaPeca.quantidade < 1
-                                                                                    ? "Quantidade deve ser maior que 0"
-                                                                                    : novaPeca.preco_unitario <= 0
-                                                                                        ? "Preço deve ser maior que 0"
-                                                                                        : "Clique para adicionar a peça"
-                                                                    }
-                                                                >
-                                                                    <button
-                                                                        type="button"
-                                                                        className={`btn w-100 d-flex align-items-center justify-content-center ${!novaPeca.tipopeca ||
-                                                                            !novaPeca.marca ||
-                                                                            novaPeca.quantidade < 1 ||
-                                                                            novaPeca.preco_unitario < 0
-                                                                            ? "btn-outline-secondary"
-                                                                            : "btn-success"
-                                                                            }`}
-                                                                        onClick={adicionarPeca}
-                                                                        disabled={
-                                                                            !novaPeca.tipopeca ||
-                                                                            !novaPeca.marca ||
-                                                                            novaPeca.quantidade < 1 ||
-                                                                            novaPeca.preco_unitario < 0
-                                                                        }
-                                                                        style={{
-                                                                            transition: "all 0.3s ease",
-                                                                            transform:
-                                                                                !novaPeca.tipopeca ||
-                                                                                    !novaPeca.marca ||
-                                                                                    novaPeca.quantidade < 1 ||
-                                                                                    novaPeca.preco_unitario < 0
-                                                                                    ? "scale(0.95)"
-                                                                                    : "scale(1)",
-                                                                        }}
-                                                                    >
-                                                                        <i className="bi bi-plus-lg me-1"></i>
-                                                                        Adicionar
-                                                                    </button>
-                                                                </div>
-                                                            </div>
-                                                        </div>
-
-                                                        {/* Campos de Desconto */}
-                                                        <div className="row g-3 mt-2">
-                                                            <div className="col-md-2">
-                                                                <label className="form-label">Tipo de Desconto</label>
-                                                                <select
-                                                                    className="form-select"
-                                                                    name="tipo_desconto"
-                                                                    value="percentual" // Valor fixo
-                                                                    disabled // Seleção desativada
-                                                                >
-                                                                    <option value="percentual">Percentual(%)</option>
-                                                                </select>
-                                                            </div>
-                                                            <div className="col-md-2">
-                                                                <label className="form-label">Desc(%)</label>
-                                                                <input
-                                                                    type="number"
-                                                                    className="form-control"
-                                                                    name="desconto_percentual"
-                                                                    value={novaPeca.desconto_percentual === 0 ? "" : novaPeca.desconto_percentual}
-                                                                    onChange={handleNovaPecaChange}
-                                                                    min="0"
-                                                                    max="100"
-                                                                    step="0.01"
-                                                                    placeholder="0"
-                                                                    onWheel={(e) => e.currentTarget.blur()}
-                                                                />
-                                                            </div>
-                                                            <div className="col-md-5">
-                                                                <label className="form-label">Observações</label>
-                                                                <input
-                                                                    type="text"
-                                                                    className="form-control"
-                                                                    name="observacao"
-                                                                    value={novaPeca.observacao}
-                                                                    onChange={handleNovaPecaChange}
-                                                                    placeholder="Observações adicionais sobre a peça..."
-                                                                />
-                                                            </div>
-                                                        </div>
-
-                                                        {/* Preview da Nova Peça */}
-                                                        {previewNovaPeca && (
-                                                            <div className="mt-3">
-                                                                <div className="alert alert-info">
-                                                                    <h6 className="alert-heading">
-                                                                        <i className="bi bi-eye me-2"></i>
-                                                                        Preview da Peça
-                                                                    </h6>
-                                                                    <div className="row">
-                                                                        <div className="col-md-3">
-                                                                            <strong>Preço Original:</strong>
-                                                                            <br />
-                                                                            <span className="text-muted">€{previewNovaPeca.precoOriginal.toFixed(2)}</span>
-                                                                        </div>
-                                                                        {previewNovaPeca.temDesconto && (
-                                                                            <div className="col-md-3">
-                                                                                <strong>Desconto:</strong>
-                                                                                <br />
-                                                                                <span className="text-warning">
-                                                                                    {novaPeca.desconto_percentual}% (€{previewNovaPeca.economia.toFixed(2)})
-                                                                                </span>
-                                                                            </div>
-                                                                        )}
-                                                                        <div className="col-md-3">
-                                                                            <strong>Preço Final:</strong>
-                                                                            <br />
-                                                                            <span className={previewNovaPeca.temDesconto ? "text-success" : "text-primary"}>
-                                                                                €{previewNovaPeca.precoComDesconto.toFixed(2)}
-                                                                            </span>
-                                                                        </div>
-                                                                        <div className="col-md-3">
-                                                                            <strong>Total ({novaPeca.quantidade}x):</strong>
-                                                                            <br />
-                                                                            <span className="text-success fw-bold">
-                                                                                €{previewNovaPeca.totalPeca.toFixed(2)}
-                                                                            </span>
-                                                                        </div>
-                                                                    </div>
-                                                                </div>
-                                                            </div>
-                                                        )}
-                                                    </div>
-                                                </div>
-
-                                                {/* Lista de Peças Adicionadas */}
-                                                {pecasNecessarias.length > 0 && (
-                                                    <div className="card">
-                                                        <div className="card-header bg-light">
-                                                            <h6 className="mb-0">
-                                                                <i className="bi bi-list-check me-2"></i>
-                                                                Peças Adicionadas ({pecasNecessarias.length})
-                                                            </h6>
-                                                        </div>
-                                                        <div className="card-body">
-                                                            <div className="table-responsive">
-                                                                <table className="table table-hover">
-                                                                    <thead>
-                                                                        <tr>
-                                                                            <th>Tipo de Peça</th>
-                                                                            <th>Marca</th>
-                                                                            <th>Qtd</th>
-                                                                            <th>Preço Unit.</th>
-                                                                            <th>Desconto</th>
-                                                                            <th>Preço c/ Desc.</th>
-                                                                            <th>Total</th>
-                                                                            <th>Observações</th>
-                                                                            <th>Status</th>
-                                                                            <th>Ações</th>
-                                                                        </tr>
-                                                                    </thead>
-                                                                    <tbody>
-                                                                        {[...pecasNecessarias]
-                                                                            .sort((a, b) => (a.ordem ?? a.id) - (b.ordem ?? b.id))
-                                                                            .map((peca) => {
-                                                                                // Linha de texto: ocupa a linha toda, sem valores
-                                                                                if (peca.is_text === 1 || peca.isText === true) {
-                                                                                    const emEdicao = editingTextoId === peca.id
-                                                                                    return (
-                                                                                        <tr key={peca.id} className="table-light">
-                                                                                            <td colSpan={10}>
-                                                                                                {emEdicao ? (
-                                                                                                    <div className="d-flex align-items-center gap-2">
-                                                                                                        <input
-                                                                                                            type="text"
-                                                                                                            className="form-control"
-                                                                                                            value={editingTextoVal}
-                                                                                                            onChange={(e) => setEditingTextoVal(e.target.value)}
-                                                                                                            placeholder="Escreva o texto da linha..."
-                                                                                                        />
-                                                                                                        <button
-                                                                                                            type="button"
-                                                                                                            className="btn btn-success btn-sm"
-                                                                                                            onClick={salvarEdicaoTexto}
-                                                                                                            title="Guardar"
-                                                                                                        >
-                                                                                                            <i className="bi bi-check"></i>
-                                                                                                        </button>
-                                                                                                        <button
-                                                                                                            type="button"
-                                                                                                            className="btn btn-secondary btn-sm"
-                                                                                                            onClick={cancelarEdicaoTexto}
-                                                                                                            title="Cancelar"
-                                                                                                        >
-                                                                                                            <i className="bi bi-x"></i>
-                                                                                                        </button>
-                                                                                                    </div>
-                                                                                                ) : (
-                                                                                                    <>
-                                                                                                        <i className="bi bi-dot me-1"></i>
-                                                                                                        <em>{peca.texto || peca.observacao || peca.tipopeca}</em>
-                                                                                                        <div className="float-end">
-                                                                                                            <button
-                                                                                                                type="button"
-                                                                                                                className="btn btn-outline-primary btn-sm me-2"
-                                                                                                                onClick={() => iniciarEdicaoTexto(peca)}
-                                                                                                                title="Editar linha"
-                                                                                                            >
-                                                                                                                <i className="bi bi-pencil"></i>
-                                                                                                            </button>
-                                                                                                            <button
-                                                                                                                type="button"
-                                                                                                                className="btn btn-outline-danger btn-sm"
-                                                                                                                onClick={() => removerPeca(peca.id)}
-                                                                                                                title="Remover linha"
-                                                                                                            >
-                                                                                                                <i className="bi bi-trash"></i>
-                                                                                                            </button>
-                                                                                                        </div>
-                                                                                                    </>
-                                                                                                )}
-                                                                                            </td>
-                                                                                        </tr>
-                                                                                    );
-                                                                                }
-
-                                                                                // Linha normal (peça)
-                                                                                const pu = Number(peca.preco_unitario) || 0;
-                                                                                const descPct = Number(peca.desconto_percentual) || 0;
-                                                                                const precoComDesconto = Math.max(0, pu - pu * (descPct / 100));
-                                                                                const totalItem = precoComDesconto * (peca.quantidade || 0);
-
-                                                                                return (
-                                                                                    <tr key={peca.id}>
-                                                                                        <td><strong>{peca.tipopeca}</strong></td>
-                                                                                        <td>{peca.marca}</td>
-                                                                                        <td><span className="badge bg-info">{peca.quantidade}</span></td>
-                                                                                        <td>€{pu.toFixed(2)}</td>
-                                                                                        <td>
-                                                                                            {descPct > 0 ? (
-                                                                                                <span className="badge bg-warning">-{descPct}%</span>
-                                                                                            ) : (
-                                                                                                <span className="text-muted">—</span>
-                                                                                            )}
-                                                                                        </td>
-                                                                                        <td><span className="fw-bold">€{precoComDesconto.toFixed(2)}</span></td>
-                                                                                        <td><strong>€{totalItem.toFixed(2)}</strong></td>
-                                                                                        <td>{peca.observacao || <span className="text-muted">—</span>}</td>
-                                                                                        <td>
-                                                                                            {peca.existeNoSistema ? (
-                                                                                                <span className="badge bg-success">
-                                                                                                    <i className="bi bi-check-circle me-1"></i>
-                                                                                                    Existe no Sistema
-                                                                                                </span>
-                                                                                            ) : (
-                                                                                                <span className="badge bg-warning">
-                                                                                                    <i className="bi bi-exclamation-circle me-1"></i>
-                                                                                                    Não Encontrada
-                                                                                                </span>
-                                                                                            )}
-                                                                                        </td>
-                                                                                        <td>
-                                                                                            <div className="btn-group">
-                                                                                                <button
-                                                                                                    type="button"
-                                                                                                    className="btn btn-outline-primary btn-sm"
-                                                                                                    onClick={() => iniciarEdicaoPeca(peca)}
-                                                                                                    title="Editar peça"
-                                                                                                >
-                                                                                                    <i className="bi bi-pencil"></i>
-                                                                                                </button>
-                                                                                                <button
-                                                                                                    type="button"
-                                                                                                    className="btn btn-outline-danger btn-sm"
-                                                                                                    onClick={() => removerPeca(peca.id)}
-                                                                                                    title="Remover peça"
-                                                                                                >
-                                                                                                    <i className="bi bi-trash"></i>
-                                                                                                </button>
-                                                                                            </div>
-                                                                                        </td>
-                                                                                    </tr>
-                                                                                );
-                                                                            })}
-                                                                    </tbody>
-                                                                </table>
-                                                            </div>
-                                                        </div>
-                                                    </div>
-                                                )}
-                                            </>
-                                        )}
-                                    </div>
-                                </div>
-                            </div>
-                        )}
-
-                        <div className="d-flex justify-content-between flex-wrap gap-2 mt-4">
-                            <div className="d-flex gap-2">
-                                <button type="button" className="btn btn-outline-secondary" onClick={handleCancel}>
-                                    <i className="bi bi-x-circle me-1"></i>
-                                    Cancelar
-                                </button>
-
-                                <button
-                                    type="button"
-                                    className="btn btn-outline-warning"
-                                    onClick={handleReset}
-                                    disabled={!hasChanges()}
-                                >
-                                    <i className="bi bi-arrow-counterclockwise me-1"></i>
-                                    Restaurar
-                                </button>
-                            </div>
-
-                            <button type="submit" className="btn btn-success btn-lg" disabled={saving || !hasChanges()}>
-                                {saving ? (
-                                    <>
-                                        <span className="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
-                                        Salvando...
-                                    </>
-                                ) : (
-                                    <>
-                                        <i className="bi bi-check-circle me-1"></i>
-                                        Salvar Alterações
-                                        {totalGeral > 0 && (
-                                            <span className="badge bg-light text-success ms-2">{totalGeral.toFixed(2)}€</span>
-                                        )}
-                                    </>
-                                )}
-                            </button>
-                        </div>
-                    </form>
-                </div>
             </div>
 
-            <style jsx>{`
-        .card {
-          border: none;
-          border-radius: 10px;
-          margin-bottom: 20px;
-        }
+            <div className="container">
+                {erro && <div className="alert alert-danger">{erro}</div>}
 
-        .card-header {
-          border-radius: 10px 10px 0 0 !important;
-          border: none;
-        }
+                <div className="row g-4">
+                    <div className="col-lg-8">
+                        {/* DADOS DA MÁQUINA (Reduzido para brevidade, manter igual ao anterior) */}
+                        <div className="card border-0 shadow-sm rounded-3 mb-4">
+                            <div className="card-header bg-white fw-bold py-3"><i className="bi bi-laptop me-2 text-primary"></i>Detalhes do Equipamento</div>
+                            <div className="card-body">
+                                <div className="row g-3">
+                                    <div className="col-md-8">
+                                        <label className="form-label small fw-bold text-muted text-uppercase">Nome da Máquina</label>
+                                        <input type="text" className="form-control" name="nomemaquina" value={form.nomemaquina} onChange={handleChange} />
+                                    </div>
+                                    <div className="col-md-4">
+                                        <label className="form-label small fw-bold text-muted text-uppercase">Nº Série</label>
+                                        <input type="text" className="form-control" name="numreparacao" value={form.numreparacao} onChange={handleChange} />
+                                    </div>
+                                    <div className="col-12">
+                                        <label className="form-label small fw-bold text-muted text-uppercase">Descrição</label>
+                                        <textarea className="form-control bg-light" rows="3" name="descricao" value={form.descricao} onChange={handleChange}></textarea>
+                                    </div>
+                                    <div className="col-md-6">
+                                        <label className="form-label small fw-bold text-muted text-uppercase">Centro</label>
+                                        <select className="form-select" name="nomecentro" value={form.nomecentro} onChange={(e) => {
+                                            const c = auxData.centros.find(c => c.nome === e.target.value)
+                                            setForm(prev => ({ ...prev, nomecentro: e.target.value, localcentro: c?.local || "" }))
+                                        }}>
+                                            <option value="">Selecione...</option>
+                                            {auxData.centros.map(c => <option key={c.id} value={c.nome}>{c.nome}</option>)}
+                                        </select>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
 
-        .form-control:focus,
-        .form-select:focus {
-          border-color: #0d6efd;
-          box-shadow: 0 0 0 0.2rem rgba(13, 110, 253, 0.25);
-        }
+                        {/* PEÇAS E SERVIÇOS */}
+                        <div className={`card border-0 shadow-sm rounded-3 ${!orcamentoAceito ? 'opacity-75' : ''}`}>
+                            <div className="card-header bg-white py-3 d-flex justify-content-between align-items-center">
+                                <span className="fw-bold"><i className="bi bi-tools me-2 text-warning"></i>Peças e Materiais</span>
+                                <button className="btn btn-sm btn-outline-secondary" onClick={adicionarLinhaTexto}><i className="bi bi-type"></i> Texto</button>
+                            </div>
 
-        .btn-success {
-          background-color: #198754;
-          border-color: #198754;
-          transition: all 0.3s ease;
-        }
+                            <div className="card-body p-0">
+                                {orcamentoAceito ? (
+                                    <div className={`p-3 border-bottom ${editingId ? 'bg-warning bg-opacity-10' : 'bg-light'}`}>
+                                        {/* INDICADOR DE EDIÇÃO */}
+                                        {editingId && <div className="text-warning fw-bold small mb-2"><i className="bi bi-pencil-fill me-1"></i>A Editar Peça</div>}
 
-        .btn-success:hover:not(:disabled) {
-          background-color: #157347;
-          border-color: #146c43;
-          transform: translateY(-1px);
-          box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
-        }
+                                        <div className="row g-2 align-items-end">
+                                            <div className="col-md-4">
+                                                <label className="small text-muted">Peça</label>
+                                                <input list="pecas-list" className="form-control form-control-sm" ref={tipoPecaInputRef} name="tipopeca" value={novaPeca.tipopeca} onChange={handleNovaPecaChange} placeholder="Nome da peça" />
+                                                <datalist id="pecas-list">{pecasSimilares.map((p, i) => <option key={i} value={p.tipopeca} />)}</datalist>
+                                            </div>
+                                            <div className="col-md-2">
+                                                <label className="small text-muted">Marca</label>
+                                                <input type="text" className="form-control form-control-sm" name="marca" value={novaPeca.marca} onChange={handleNovaPecaChange} />
+                                            </div>
+                                            <div className="col-md-1">
+                                                <label className="small text-muted">Qtd</label>
+                                                <input type="number" className="form-control form-control-sm" name="quantidade" value={novaPeca.quantidade} onChange={handleNovaPecaChange} min="1" />
+                                            </div>
+                                            <div className="col-md-2">
+                                                <label className="small text-muted">Preço (€)</label>
+                                                <input type="number" className="form-control form-control-sm" name="preco_unitario" value={novaPeca.preco_unitario} onChange={handleNovaPecaChange} step="0.01" />
+                                            </div>
+                                            <div className="col-md-1">
+                                                <label className="small text-muted">Desc(%)</label>
+                                                <input type="number" className="form-control form-control-sm" name="desconto_percentual" value={novaPeca.desconto_percentual} onChange={handleNovaPecaChange} min="0" max="100" />
+                                            </div>
+                                            <div className="col-md-2 d-flex gap-1">
+                                                {/* BOTÕES DINÂMICOS (ADICIONAR OU ATUALIZAR) */}
+                                                {editingId ? (
+                                                    <>
+                                                        <button className="btn btn-sm btn-success w-100" onClick={gerirPeca} title="Atualizar"><i className="bi bi-check-lg"></i></button>
+                                                        <button className="btn btn-sm btn-outline-danger w-100" onClick={cancelarEdicao} title="Cancelar"><i className="bi bi-x-lg"></i></button>
+                                                    </>
+                                                ) : (
+                                                    <button className="btn btn-sm btn-primary w-100" onClick={gerirPeca} disabled={!novaPeca.tipopeca}><i className="bi bi-plus-lg"></i> Add</button>
+                                                )}
+                                            </div>
+                                        </div>
+                                    </div>
+                                ) : (
+                                    <div className="p-4 text-center text-muted fst-italic bg-light">O orçamento precisa ser aceite para adicionar peças.</div>
+                                )}
 
-        .btn-success:disabled {
-          opacity: 0.6;
-          transform: none;
-        }
+                                <div className="table-responsive">
+                                    <table className="table table-hover mb-0 align-middle" style={{ fontSize: '0.9rem' }}>
+                                        <thead className="bg-light text-secondary">
+                                            <tr>
+                                                <th className="ps-4">Descrição</th>
+                                                <th>Marca</th>
+                                                <th className="text-center">Qtd</th>
+                                                <th className="text-end">Unit.</th>
+                                                <th className="text-end">Total</th>
+                                                <th className="text-end pe-4">Ações</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {pecasNecessarias.length === 0 && <tr><td colSpan="6" className="text-center py-4 text-muted">Sem peças adicionadas.</td></tr>}
+                                            {pecasNecessarias.map((peca) => (
+                                                <tr key={peca.id} className={`${peca.is_text ? "table-light" : ""} ${editingId === peca.id ? "table-warning" : ""}`}>
+                                                    {peca.is_text ? (
+                                                        <td colSpan="5" className="ps-4 fst-italic text-muted"><i className="bi bi-justify-left me-2"></i>{peca.texto || peca.tipopeca}</td>
+                                                    ) : (
+                                                        <>
+                                                            <td className="ps-4 fw-bold">{peca.tipopeca}</td>
+                                                            <td>{peca.marca}</td>
+                                                            <td className="text-center"><span className="badge bg-light text-dark border">{peca.quantidade}</span></td>
+                                                            <td className="text-end text-muted small">
+                                                                {peca.desconto_percentual > 0 && <span className="text-warning me-1">-{peca.desconto_percentual}%</span>}
+                                                                {formatCurrency(peca.preco_unitario)}
+                                                            </td>
+                                                            <td className="text-end fw-bold text-dark">{formatCurrency(peca.preco_total)}</td>
+                                                        </>
+                                                    )}
+                                                    <td className="text-end pe-4">
+                                                        <div className="d-flex justify-content-end gap-2">
+                                                            {!peca.is_text && (
+                                                                <button className="btn btn-link text-primary p-0" onClick={() => iniciarEdicao(peca)} title="Editar"><i className="bi bi-pencil-square"></i></button>
+                                                            )}
+                                                            <button className="btn btn-link text-danger p-0" onClick={() => removerPeca(peca.id)} title="Remover"><i className="bi bi-trash"></i></button>
+                                                        </div>
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
 
-        .btn-outline-warning:hover {
-          background-color: #ffc107;
-          color: #000;
-        }
+                    {/* --- COLUNA DIREITA (SIDEBAR) --- */}
+                    <div className="col-lg-4">
+                        {/* CLIENTE */}
+                        <div className="card border-0 shadow-sm rounded-3 mb-4">
+                            <div className="card-body">
+                                <h6 className="text-uppercase fw-bold text-muted mb-3" style={{ fontSize: '0.75rem' }}>Cliente</h6>
+                                <select className="form-select" name="cliente_id" value={form.cliente_id} onChange={handleChange}>
+                                    {auxData.clientes.map(c => <option key={c.id} value={c.id}>{c.nome}</option>)}
+                                </select>
+                            </div>
+                        </div>
 
-        .btn-outline-secondary:hover {
-          background-color: #6c757d;
-          color: white;
-        }
+                        {/* WORKFLOW */}
+                        <div className="card border-0 shadow-sm rounded-3 mb-4">
+                            <div className="card-body">
+                                <h6 className="text-uppercase fw-bold text-muted mb-3" style={{ fontSize: '0.75rem' }}>Workflow</h6>
+                                <div className="row g-2 mb-3">
+                                    <div className="col-6">
+                                        <label className="form-label fw-bold small">Orçamento</label>
+                                        <select className="form-select form-select-sm" value={auxData.orcamentos.find(o => o.estado === form.estadoorcamento)?.id || ""} onChange={(e) => {
+                                            const novo = auxData.orcamentos.find(o => String(o.id) === e.target.value)?.estado
+                                            setForm(p => ({ ...p, estadoorcamento: novo }))
+                                        }}>
+                                            <option value="">Selecione...</option>
+                                            {auxData.orcamentos.map(o => <option key={o.id} value={o.id}>{o.estado}</option>)}
+                                        </select>
+                                    </div>
+                                    <div className="col-6">
+                                        <label className="form-label fw-bold small">Reparação</label>
+                                        <select className="form-select form-select-sm" value={form.estadoreparacao} onChange={e => setForm({ ...form, estadoreparacao: e.target.value })}>
+                                            {auxData.reparacoes.map(r => <option key={r.id} value={r.estado}>{r.estado}</option>)}
+                                        </select>
+                                    </div>
+                                </div>
+                                <div className="mb-2">
+                                    <label className="small text-muted">Data Conclusão</label>
+                                    <input type="date" className="form-control form-control-sm" name="dataconclusao" value={form.dataconclusao} onChange={handleChange} />
+                                </div>
+                            </div>
+                        </div>
 
-        .invalid-feedback {
-          display: block;
-        }
-
-        .badge {
-          font-size: 0.75em;
-          padding: 0.5em 0.75em;
-          border-radius: 20px;
-        }
-
-        .table th {
-          background-color: #f8f9fa;
-          border-top: none;
-          font-weight: 600;
-          font-size: 0.9em;
-        }
-
-        .table td {
-          vertical-align: middle;
-        }
-
-        .input-xs {
-          width: 20px;
-        }
-        .input-sm {
-          width: 90px;
-        }
-        .input-md {
-          width: 120px;
-        }
-        .input-lg {
-          width: 150px;
-        }
-
-        .form-control-sm {
-          font-size: 0.9rem;
-        }
-
-        .text-decoration-line-through {
-          text-decoration: line-through !important;
-        }
-
-        @media (max-width: 768px) {
-          .card-header h4 {
-            font-size: 1.1rem;
-          }
-
-          .d-flex.justify-content-between {
-            flex-direction: column;
-          }
-
-          .d-flex.gap-2 {
-            justify-content: center;
-            margin-bottom: 10px;
-          }
-
-          .btn {
-            padding: 0.375rem 0.75rem;
-            font-size: 0.9rem;
-          }
-
-          .table-responsive {
-            font-size: 0.8rem;
-          }
-
-          .form-control-sm {
-            font-size: 0.75rem;
-          }
-        }
-
-        .position-relative [title]:hover::after {
-          content: attr(title);
-          position: absolute;
-          bottom: 100%;
-          left: 50%;
-          transform: translateX(-50%);
-          background: rgba(0, 0, 0, 0.8);
-          color: white;
-          padding: 4px 8px;
-          border-radius: 4px;
-          font-size: 0.75rem;
-          white-space: nowrap;
-          z-index: 1000;
-        }
-      `}</style>
+                        {/* FINANCEIRO */}
+                        <div className="card border-0 shadow-sm rounded-3 bg-primary text-white">
+                            <div className="card-body">
+                                <h6 className="text-uppercase fw-bold mb-4 border-bottom border-white border-opacity-25 pb-2">Totais</h6>
+                                <div className="mb-3">
+                                    <label className="small text-white text-opacity-75">Mão de Obra (€)</label>
+                                    <input type="number" className="form-control form-control-sm bg-white bg-opacity-25 border-0 text-white" value={valorMaoObra} onChange={e => setValorMaoObra(parseFloat(e.target.value) || 0)} />
+                                </div>
+                                <div className="row g-2 mb-3">
+                                    <div className="col-8">
+                                        <label className="small text-white text-opacity-75">Desconto MO</label>
+                                        <input type="number" className="form-control form-control-sm bg-white bg-opacity-10 border-0 text-white" value={desconto} onChange={e => setDesconto(parseFloat(e.target.value) || 0)} />
+                                    </div>
+                                    <div className="col-4">
+                                        <label className="small text-white text-opacity-75">Tipo</label>
+                                        <select className="form-select form-select-sm bg-white bg-opacity-10 border-0 text-white" value={tipoDesconto} onChange={e => setTipoDesconto(e.target.value)}>
+                                            <option value="percentual" className="text-dark">%</option>
+                                            <option value="valor" className="text-dark">€</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                <div className="mt-4 pt-3 border-top border-white border-opacity-25 d-flex justify-content-between align-items-center">
+                                    <span>Total Final (c/ IVA)</span>
+                                    <span className="fs-2 fw-bold">{formatCurrency(financeiros.totalComIva)}</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
         </div>
     )
 }
