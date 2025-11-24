@@ -12,7 +12,7 @@ const DetalhesAlarmeModal = ({ alarme, onClose, onMarkAsSeen }) => {
     if (!alarme) return null
 
     const getCor = (prioridade) => {
-        const cores = { 'Crítico': 'danger', 'Alto': 'warning', 'Médio': 'warning', 'Baixo': 'info' }
+        const cores = { 'Crítico': 'danger', 'Alto': 'warning', 'Médio': 'info', 'Baixo': 'secondary' }
         return cores[prioridade] || 'secondary'
     }
 
@@ -38,10 +38,18 @@ const DetalhesAlarmeModal = ({ alarme, onClose, onMarkAsSeen }) => {
                                     <small className="text-muted d-block text-uppercase fw-bold" style={{ fontSize: '0.7rem' }}>Cliente</small>
                                     <span className="fw-semibold">{alarme.cliente_nome}</span>
                                 </div>
-                                <div className="col-12 mt-3">
+                                <div className="col-6 mt-2">
+                                    <small className="text-muted d-block text-uppercase fw-bold" style={{ fontSize: '0.7rem' }}>Centro</small>
+                                    <span className="fw-semibold"><i className="bi bi-geo-alt me-1"></i>{alarme.nomecentro || 'N/A'}</span>
+                                </div>
+                                <div className="col-6 mt-2">
+                                    <small className="text-muted d-block text-uppercase fw-bold" style={{ fontSize: '0.7rem' }}>Nº Reparação</small>
+                                    <span className="fw-semibold">#{alarme.numreparacao || alarme.id}</span>
+                                </div>
+                                <div className="col-12 mt-3 pt-2 border-top">
                                     <small className="text-muted d-block text-uppercase fw-bold" style={{ fontSize: '0.7rem' }}>Motivo do Alerta</small>
                                     <div className="d-flex align-items-center gap-2 mt-1">
-                                        <span className="badge bg-secondary">{alarme.tipo_alarme.replace('_', ' ')}</span>
+                                        <span className="badge bg-secondary">{alarme.tipo_alarme?.replace('_', ' ') || 'Alarme'}</span>
                                         <span className={`badge bg-${getCor(alarme.prioridade)}`}>{alarme.dias_alerta} dias de atraso</span>
                                     </div>
                                 </div>
@@ -55,15 +63,15 @@ const DetalhesAlarmeModal = ({ alarme, onClose, onMarkAsSeen }) => {
                             </div>
                         )}
 
-                        <div className="d-flex gap-2 text-muted small">
+                        <div className="d-flex flex-wrap gap-3 text-muted small border-top pt-2">
                             {alarme.cliente_telefone && <span><i className="bi bi-telephone me-1"></i>{alarme.cliente_telefone}</span>}
                             {alarme.cliente_email && <span><i className="bi bi-envelope me-1"></i>{alarme.cliente_email}</span>}
                         </div>
                     </div>
-                    <div className="modal-footer border-top-0">
-                        <button type="button" className="btn btn-light" onClick={onClose}>Fechar</button>
+                    <div className="modal-footer border-top-0 pt-0">
+                        <button type="button" className="btn btn-light btn-sm" onClick={onClose}>Fechar</button>
                         {!alarme.visto && (
-                            <button type="button" className="btn btn-success d-flex align-items-center gap-2" onClick={() => onMarkAsSeen(alarme.id, alarme.tipo_alarme)}>
+                            <button type="button" className="btn btn-success btn-sm d-flex align-items-center gap-2" onClick={() => onMarkAsSeen(alarme.id, alarme.tipo_alarme)}>
                                 <i className="bi bi-check-lg"></i> Marcar como Visto
                             </button>
                         )}
@@ -117,7 +125,7 @@ const AlarmesSistema = () => {
         }
     }
 
-    // Filtros e Lógica de Visualização
+    // Filtros
     const alarmesFiltrados = alarmes.filter(a =>
         filtroAtivo === "todos" ? true :
             filtroAtivo === "criticos" ? a.prioridade === "Crítico" :
@@ -127,7 +135,6 @@ const AlarmesSistema = () => {
 
     const listaLimitada = alarmesFiltrados.slice(0, 5)
 
-    // Configuração Visual dos Filtros
     const filtrosConfig = [
         { id: 'todos', label: 'Todos', count: alarmes.length, color: 'secondary', icon: 'bi-layers' },
         { id: 'criticos', label: 'Críticos', count: stats.criticos || 0, color: 'danger', icon: 'bi-exclamation-octagon' },
@@ -139,14 +146,14 @@ const AlarmesSistema = () => {
 
     return (
         <div className="card border-0 shadow-sm h-100">
-            {/* Header do Widget */}
+            {/* Header */}
             <div className="card-header bg-white py-3 border-bottom-0 d-flex justify-content-between align-items-center">
                 <h6 className="mb-0 fw-bold d-flex align-items-center gap-2">
                     <span className="position-relative">
                         <i className="bi bi-bell text-primary fs-5"></i>
                         {alarmes.length > 0 && (
                             <span className="position-absolute top-0 start-100 translate-middle p-1 bg-danger border border-light rounded-circle">
-                                <span className="visually-hidden">Novos alarmes</span>
+                                <span className="visually-hidden">Novos</span>
                             </span>
                         )}
                     </span>
@@ -156,7 +163,7 @@ const AlarmesSistema = () => {
             </div>
 
             <div className="card-body pt-0">
-                {/* Barra de Filtros (Pills) */}
+                {/* Filtros */}
                 <div className="d-flex gap-2 mb-3 overflow-auto pb-2" style={{ scrollbarWidth: 'none' }}>
                     {filtrosConfig.map(f => (
                         <button
@@ -193,21 +200,32 @@ const AlarmesSistema = () => {
                                     onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = '0 4px 6px rgba(0,0,0,0.05)' }}
                                     onMouseLeave={e => { e.currentTarget.style.transform = 'none'; e.currentTarget.style.boxShadow = 'none' }}
                                 >
-                                    {/* Indicador Lateral de Cor */}
+                                    {/* Indicador Lateral */}
                                     <div className={`position-absolute top-0 start-0 bottom-0 bg-${cor}`} style={{ width: '4px', borderTopLeftRadius: '4px', borderBottomLeftRadius: '4px' }}></div>
 
-                                    <div className="d-flex justify-content-between align-items-start ms-2">
-                                        <div>
-                                            <div className="d-flex align-items-center gap-2 mb-1">
-                                                <span className={`text-${cor} small fw-bold d-flex align-items-center gap-1`}>
-                                                    <i className={`bi ${icon}`}></i> {alarme.prioridade}
+                                    <div className="ms-2">
+                                        <div className="d-flex justify-content-between align-items-start mb-1">
+                                            <div className="d-flex align-items-center gap-2">
+                                                <span className={`badge bg-${cor} bg-opacity-10 text-${cor} px-2 py-1`} style={{ fontSize: '0.65rem' }}>
+                                                    <i className={`bi ${icon} me-1`}></i> {alarme.prioridade}
                                                 </span>
-                                                <span className="text-muted small">• {alarme.dias_alerta}d atrás</span>
+                                                <span className="text-muted small" style={{ fontSize: '0.75rem' }}>• {alarme.dias_alerta}d atrás</span>
                                             </div>
-                                            <h6 className="mb-0 fw-bold text-dark" style={{ fontSize: '0.9rem' }}>{alarme.nomemaquina}</h6>
-                                            <small className="text-muted d-block text-truncate" style={{ maxWidth: '200px' }}>{alarme.cliente_nome}</small>
+                                            <small className="text-muted fw-bold" style={{ fontSize: '0.7rem' }}>#{alarme.numreparacao || alarme.id}</small>
                                         </div>
-                                        <i className="bi bi-chevron-right text-muted small"></i>
+
+                                        <div className="d-flex justify-content-between align-items-center">
+                                            <h6 className="mb-0 fw-bold text-dark text-truncate" style={{ fontSize: '0.9rem', maxWidth: '70%' }}>
+                                                {alarme.nomemaquina}
+                                            </h6>
+                                            <span className="badge bg-light text-secondary border" style={{ fontSize: '0.65rem' }}>
+                                                <i className="bi bi-geo-alt me-1"></i>{alarme.nomecentro || "Geral"}
+                                            </span>
+                                        </div>
+
+                                        <small className="text-muted d-block text-truncate mt-1" style={{ maxWidth: '90%' }}>
+                                            <i className="bi bi-person me-1"></i>{alarme.cliente_nome}
+                                        </small>
                                     </div>
                                 </div>
                             )

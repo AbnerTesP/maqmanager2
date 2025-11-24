@@ -118,7 +118,7 @@ async function generateRepairPDF(reparacaoId) {
                 const limit = () => pageBottom;
 
                 // Função auxiliar para formatação de moeda
-                const formatMoney = (val) => `${Number(val).toFixed(2)}€`;
+                const formatMoney = (val) => `${Number(val).toFixed(2)} €`;
 
                 const checkSpace = space => {
                     if (y + space > limit()) {
