@@ -463,12 +463,19 @@ function ReparacoesEdit() {
                                     </div>
                                 </div>
                                 <div className="mb-2">
+                                    <label className="small text-muted">Data Entrega</label>
+                                    <input type="date" className="form-control form-control-sm" name="dataentrega" value={form.dataentrega} onChange={handleChange} />
+                                </div>
+                                <div className="mb-2">
                                     <label className="small text-muted">Data Conclusão</label>
                                     <input type="date" className="form-control form-control-sm" name="dataconclusao" value={form.dataconclusao} onChange={handleChange} />
                                 </div>
+                                <div className="mb-2">
+                                    <label className="small text-muted">Data Saída</label>
+                                    <input type="date" className="form-control form-control-sm" name="datasaida" value={form.datasaida} onChange={handleChange} />
+                                </div>
                             </div>
                         </div>
-
                         {/* FINANCEIRO */}
                         <div className="card border-0 shadow-sm rounded-3 bg-primary text-white">
                             <div className="card-body">
