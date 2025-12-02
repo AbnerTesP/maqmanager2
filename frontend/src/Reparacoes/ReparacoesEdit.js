@@ -471,6 +471,7 @@ function ReparacoesEdit() {
                                     <input type="date" className="form-control form-control-sm" name="dataconclusao" value={form.dataconclusao} onChange={handleChange} />
                                 </div>
                                 <div className="mb-2">
+                                    
                                     <label className="small text-muted">Data Saída</label>
                                     <input type="date" className="form-control form-control-sm" name="datasaida" value={form.datasaida} onChange={handleChange} />
                                 </div>
