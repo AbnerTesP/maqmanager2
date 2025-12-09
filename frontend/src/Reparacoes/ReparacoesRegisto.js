@@ -528,6 +528,7 @@ function ReparacoesRegisto() {
                                 </div>
                                 <div className="d-flex justify-content-between mb-1"><span className="small text-white text-opacity-75">Total Peças</span><span className="fw-bold">{formatCurrency(financeiros.totalPecas)}</span></div>
                                 <div className="d-flex justify-content-between mb-1"><span className="small text-white text-opacity-75">Mão Obra (Líq)</span><span className="fw-bold">{formatCurrency(financeiros.moFinal)}</span></div>
+                                <div className="d-flex justify-content-between mb-1"><span className="small text-white text-opacity-75">Total Geral (s/ IVA)</span><span className="fw-bold">{formatCurrency(financeiros.totalGeral)}</span></div>
                                 <div className="mt-3 pt-2 border-top border-white border-opacity-25 d-flex justify-content-between align-items-center"><span>Total Final (c/ IVA)</span><span className="fs-3 fw-bold">{formatCurrency(financeiros.totalComIva)}</span></div>
                             </div>
                         </div>

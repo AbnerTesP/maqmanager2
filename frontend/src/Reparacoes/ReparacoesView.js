@@ -170,7 +170,7 @@ function ReparacoesView() {
                 const blobUrl = window.URL.createObjectURL(new Blob([res.data]))
                 const link = document.createElement("a")
                 link.href = blobUrl
-                link.setAttribute("download", `orcamento_${reparacao.id}.pdf`)
+                link.setAttribute("download", `Reparação nº ${reparacao.numreparacao || reparacao.id}.pdf`)
                 document.body.appendChild(link)
                 link.click()
                 link.remove()
@@ -465,7 +465,10 @@ function ReparacoesView() {
                                             <span>- {formatCurrency(totais.valorDesconto)}</span>
                                         </div>
                                     )}
-
+                                    <div className="d-flex justify-content-between mb-1">
+                                        <span className="small text-white text-opacity-75">Total Geral (s/ IVA)</span>
+                                        <span className="fw-bold">{formatCurrency(totais.totalGeral)}</span>
+                                    </div>
                                     <div className="mt-4 pt-3 border-top border-white border-opacity-25">
                                         <div className="d-flex justify-content-between align-items-center">
                                             <span className="fs-6 text-white text-opacity-75">Total (c/ IVA)</span>

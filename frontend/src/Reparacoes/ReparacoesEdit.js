@@ -349,7 +349,7 @@ function ReparacoesEdit() {
                                                 <datalist id="pecas-list">{pecasSimilares.map((p, i) => <option key={i} value={p.tipopeca} />)}</datalist>
                                             </div>
                                             <div className="col-md-2">
-                                                <label className="small text-muted">Marca</label>
+                                                <label className="small text-muted">Ref.</label>
                                                 <input type="text" className="form-control form-control-sm" name="marca" value={novaPeca.marca} onChange={handleNovaPecaChange} />
                                             </div>
                                             <div className="col-md-1">
@@ -471,7 +471,7 @@ function ReparacoesEdit() {
                                     <input type="date" className="form-control form-control-sm" name="dataconclusao" value={form.dataconclusao} onChange={handleChange} />
                                 </div>
                                 <div className="mb-2">
-                                    
+
                                     <label className="small text-muted">Data Saída</label>
                                     <input type="date" className="form-control form-control-sm" name="datasaida" value={form.datasaida} onChange={handleChange} />
                                 </div>
@@ -494,11 +494,14 @@ function ReparacoesEdit() {
                                         <label className="small text-white text-opacity-75">Tipo</label>
                                         <select className="form-select form-select-sm bg-white bg-opacity-10 border-0 text-white" value={tipoDesconto} onChange={e => setTipoDesconto(e.target.value)}>
                                             <option value="percentual" className="text-dark">%</option>
-                                            <option value="valor" className="text-dark">€</option>
                                         </select>
                                     </div>
                                 </div>
                                 <div className="mt-4 pt-3 border-top border-white border-opacity-25 d-flex justify-content-between align-items-center">
+                                    <span>Subtotal Peças</span>
+                                    <span className="fs-5 fw-bold">{formatCurrency(financeiros.totalPecas)}</span>
+                                </div>
+                                <div className="d-flex justify-content-between align-items-center">
                                     <span>Total Final (c/ IVA)</span>
                                     <span className="fs-2 fw-bold">{formatCurrency(financeiros.totalComIva)}</span>
                                 </div>

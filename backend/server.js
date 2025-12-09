@@ -1708,7 +1708,7 @@ app.get("/reparacoes/:id/pdf", async (req, res) => {
         const numReparacao = result[0].numreparacao || id;
 
         const pdfBuffer = await generateRepairPDF(id);
-
+ 
         // Configurar headers com nome personalizado
         const filename = `Reparação nº ${numReparacao}.pdf`;
         const encodedFilename = encodeURIComponent(filename);
