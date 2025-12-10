@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
+import { Pagination } from "react-bootstrap"
 import "bootstrap/dist/css/bootstrap.min.css"
 import "bootstrap-icons/font/bootstrap-icons.css"
 
@@ -88,7 +89,12 @@ const AlarmesSistema = () => {
     const [stats, setStats] = useState({})
     const [loading, setLoading] = useState(true)
     const [selectedAlarme, setSelectedAlarme] = useState(null)
-    const [filtroAtivo, setFiltroAtivo] = useState("todos")
+
+    // Estado para filtro e paginação, inicializado a partir do sessionStorage
+    const [filtroAtivo, setFiltroAtivo] = useState(() => sessionStorage.getItem('alarmesFiltroAtivo') || "todos");
+    const [currentPage, setCurrentPage] = useState(() => Number(sessionStorage.getItem('alarmesCurrentPage')) || 1);
+
+    const ITEMS_PER_PAGE = 5;
 
     const fetchAlarmes = async () => {
         try {
@@ -110,6 +116,17 @@ const AlarmesSistema = () => {
         const interval = setInterval(fetchAlarmes, 300000) // 5 min
         return () => clearInterval(interval)
     }, [])
+
+    // Persistir o estado no sessionStorage
+    useEffect(() => {
+        sessionStorage.setItem('alarmesFiltroAtivo', filtroAtivo);
+        // Ao mudar o filtro, volta para a primeira página para evitar visualização de página vazia
+        setCurrentPage(1);
+    }, [filtroAtivo]);
+
+    useEffect(() => {
+        sessionStorage.setItem('alarmesCurrentPage', String(currentPage));
+    }, [currentPage]);
 
     const marcarComoVisto = async (id, tipo) => {
         try {
@@ -133,7 +150,16 @@ const AlarmesSistema = () => {
                     a.prioridade === "Médio"
     )
 
-    const listaLimitada = alarmesFiltrados.slice(0, 5)
+    // Lógica de Paginação
+    const totalPages = Math.ceil(alarmesFiltrados.length / ITEMS_PER_PAGE);
+    const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
+    const listaPaginada = alarmesFiltrados.slice(startIndex, startIndex + ITEMS_PER_PAGE);
+
+    const handlePageChange = (page) => {
+        if (page >= 1 && page <= totalPages) {
+            setCurrentPage(page);
+        }
+    };
 
     const filtrosConfig = [
         { id: 'todos', label: 'Todos', count: alarmes.length, color: 'secondary', icon: 'bi-layers' },
@@ -181,13 +207,13 @@ const AlarmesSistema = () => {
 
                 {/* Lista de Alarmes */}
                 <div className="d-flex flex-column gap-2">
-                    {listaLimitada.length === 0 ? (
+                    {listaPaginada.length === 0 ? (
                         <div className="text-center py-4 text-muted bg-light rounded-3 border border-dashed">
                             <i className="bi bi-check2-circle fs-1 text-success opacity-50"></i>
                             <p className="mb-0 small mt-2">Tudo limpo por aqui!</p>
                         </div>
                     ) : (
-                        listaLimitada.map(alarme => {
+                        listaPaginada.map(alarme => {
                             const cor = alarme.prioridade === 'Crítico' ? 'danger' : alarme.prioridade === 'Alto' ? 'warning' : 'info'
                             const icon = alarme.prioridade === 'Crítico' ? 'bi-lightning-fill' : 'bi-clock-history'
 
@@ -232,6 +258,21 @@ const AlarmesSistema = () => {
                         })
                     )}
                 </div>
+
+                {/* Controles de Paginação */}
+                {totalPages > 1 && (
+                    <div className="d-flex justify-content-center mt-3">
+                        <Pagination size="sm">
+                            <Pagination.Prev onClick={() => handlePageChange(currentPage - 1)} disabled={currentPage === 1} />
+                            {[...Array(totalPages).keys()].map(number => (
+                                <Pagination.Item key={number + 1} active={number + 1 === currentPage} onClick={() => handlePageChange(number + 1)}>
+                                    {number + 1}
+                                </Pagination.Item>
+                            ))}
+                            <Pagination.Next onClick={() => handlePageChange(currentPage + 1)} disabled={currentPage === totalPages} />
+                        </Pagination>
+                    </div>
+                )}
             </div>
 
             {selectedAlarme && (

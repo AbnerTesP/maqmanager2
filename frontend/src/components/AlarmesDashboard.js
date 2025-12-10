@@ -1,7 +1,7 @@
 "use client"
 
-import { useState, useEffect, useMemo } from "react"
-import { Card, Row, Col, Alert, ProgressBar, Badge, Button, Form, Spinner } from "react-bootstrap"
+import { useState, useEffect, useMemo, useRef } from "react"
+import { Card, Row, Col, Alert, ProgressBar, Badge, Button, Form, Spinner, Pagination } from "react-bootstrap"
 import { Doughnut, Bar } from "react-chartjs-2"
 import {
     Chart as ChartJS,
@@ -297,11 +297,16 @@ const DetailCard = ({ title, icon, quantity, avgTime, progressColor, progressVal
 
 function AlarmesDashboard() {
     const { estatisticas, alarmes, alarmesPorTipo, tendencias, loading, error, refetch } = useAlarmData()
-    const [filtros, setFiltros] = useState({
-        tipo: "todos",
-        prioridade: "todos",
-        visto: "todos",
+
+    // Estado para filtros e paginação com persistência na sessão
+    const [filtros, setFiltros] = useState(() => {
+        const saved = sessionStorage.getItem('dashboardAlarmesFiltros')
+        return saved ? JSON.parse(saved) : { tipo: "todos", prioridade: "todos", visto: "todos" }
     })
+    const [currentPage, setCurrentPage] = useState(() => Number(sessionStorage.getItem('dashboardAlarmesPage')) || 1)
+    const ITEMS_PER_PAGE = 6 // 6 itens por página (2 linhas de 3 cards)
+    const mounted = useRef(false)
+
     const [gerandoPDF, setGerandoPDF] = useState(false)
 
     const alarmesFiltrados = useMemo(() => {
@@ -315,6 +320,32 @@ function AlarmesDashboard() {
             return true
         })
     }, [alarmes, filtros])
+
+    // Persistir filtros e resetar página ao mudar filtro (mas não no carregamento inicial)
+    useEffect(() => {
+        sessionStorage.setItem('dashboardAlarmesFiltros', JSON.stringify(filtros))
+        if (mounted.current) {
+            setCurrentPage(1)
+        } else {
+            mounted.current = true
+        }
+    }, [filtros])
+
+    // Persistir página atual
+    useEffect(() => {
+        sessionStorage.setItem('dashboardAlarmesPage', String(currentPage))
+    }, [currentPage])
+
+    // Lógica de Paginação
+    const totalPages = Math.ceil(alarmesFiltrados.length / ITEMS_PER_PAGE)
+    const startIndex = (currentPage - 1) * ITEMS_PER_PAGE
+    const paginatedAlarmes = alarmesFiltrados.slice(startIndex, startIndex + ITEMS_PER_PAGE)
+
+    const handlePageChange = (page) => {
+        if (page >= 1 && page <= totalPages) {
+            setCurrentPage(page)
+        }
+    }
 
     const handleFilterChange = (key, value) => {
         setFiltros((prev) => ({ ...prev, [key]: value }))
@@ -551,22 +582,39 @@ function AlarmesDashboard() {
                     </Button>
                 </Card.Header>
                 <Card.Body>
-                    {alarmesFiltrados.length === 0 ? (
+                    {paginatedAlarmes.length === 0 ? (
                         <Alert variant="info" className="text-center">
                             <i className="bi bi-info-circle me-2"></i>
                             Nenhum alarme encontrado com os filtros selecionados.
                         </Alert>
                     ) : (
-                        <Row>
-                            {alarmesFiltrados.map((alarme) => (
-                                <AlarmeCard
-                                    key={alarme.id}
-                                    alarme={alarme}
-                                    onMarkAsSeen={marcarComoVisto}
-                                    onViewDetails={verDetalhes}
-                                />
-                            ))}
-                        </Row>
+                        <>
+                            <Row>
+                                {paginatedAlarmes.map((alarme) => (
+                                    <AlarmeCard
+                                        key={alarme.id}
+                                        alarme={alarme}
+                                        onMarkAsSeen={marcarComoVisto}
+                                        onViewDetails={verDetalhes}
+                                    />
+                                ))}
+                            </Row>
+
+                            {/* Controles de Paginação */}
+                            {totalPages > 1 && (
+                                <div className="d-flex justify-content-center mt-4">
+                                    <Pagination>
+                                        <Pagination.Prev onClick={() => handlePageChange(currentPage - 1)} disabled={currentPage === 1} />
+                                        {[...Array(totalPages).keys()].map(number => (
+                                            <Pagination.Item key={number + 1} active={number + 1 === currentPage} onClick={() => handlePageChange(number + 1)}>
+                                                {number + 1}
+                                            </Pagination.Item>
+                                        ))}
+                                        <Pagination.Next onClick={() => handlePageChange(currentPage + 1)} disabled={currentPage === totalPages} />
+                                    </Pagination>
+                                </div>
+                            )}
+                        </>
                     )}
                 </Card.Body>
             </Card>

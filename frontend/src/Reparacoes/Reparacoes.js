@@ -53,10 +53,28 @@ function removerAcentos(str) {
 function ReparacoesView() {
     const [reparacoes, setReparacoes] = useState([])
     const [alarmes, setAlarmes] = useState([])
-    const [searchTerm, setSearchTerm] = useState("")
     const [loading, setLoading] = useState(true)
-    const [filterStatus, setFilterStatus] = useState("all")
     const navigate = useNavigate()
+
+    // -- Estados persistidos para filtros e paginação --
+    const [searchTerm, setSearchTerm] = useState(() => sessionStorage.getItem("reparacoesSearchTerm") || "")
+    const [filterStatus, setFilterStatus] = useState(() => sessionStorage.getItem("reparacoesFilterStatus") || "all")
+    const [currentPage, setCurrentPage] = useState(() => Number(sessionStorage.getItem("reparacoesCurrentPage")) || 1)
+    const [perPage, setPerPage] = useState(() => Number(sessionStorage.getItem("reparacoesPerPage")) || 10)
+
+    // Efeitos para guardar o estado na sessionStorage
+    useEffect(() => {
+        sessionStorage.setItem("reparacoesSearchTerm", searchTerm)
+        sessionStorage.setItem("reparacoesFilterStatus", filterStatus)
+    }, [searchTerm, filterStatus])
+
+    useEffect(() => {
+        sessionStorage.setItem("reparacoesCurrentPage", currentPage)
+    }, [currentPage])
+
+    useEffect(() => {
+        sessionStorage.setItem("reparacoesPerPage", perPage)
+    }, [perPage])
 
     useEffect(() => {
         const loadData = async () => {
@@ -202,6 +220,14 @@ function ReparacoesView() {
         },
     ], [handleDelete, navigate, getStatus])
 
+    const handlePageChange = (page) => {
+        setCurrentPage(page)
+    }
+
+    const handlePerPageChange = (newPerPage) => {
+        setPerPage(newPerPage)
+    }
+
     const handleRowClick = (row) => {
         navigate(`/reparacoes/view/${row.id}`)
     }
@@ -291,7 +317,11 @@ function ReparacoesView() {
                             columns={columns}
                             data={filteredReparacoes}
                             pagination
-                            paginationPerPage={10}
+                            paginationPerPage={perPage}
+                            paginationRowsPerPageOptions={[10, 15, 20, 30]}
+                            paginationDefaultPage={currentPage}
+                            onChangePage={handlePageChange}
+                            onChangeRowsPerPage={handlePerPageChange}
                             highlightOnHover
                             pointerOnHover
                             onRowClicked={handleRowClick}

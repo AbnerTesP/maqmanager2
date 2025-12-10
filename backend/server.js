@@ -61,47 +61,23 @@ async function generateRepairPDF(reparacaoId) {
     try {
         console.log(`🔍 Buscando dados para PDF da reparação ${reparacaoId}`);
 
-        // Busca de dados em paralelo para ser mais rápido
+        // ... (A tua busca de dados SQL mantém-se IGUAL) ...
         const [reparacaoRows, pecasRows] = await Promise.all([
-            pool.execute(
-                `SELECT r.*, c.nome as cliente_nome, c.morada as cliente_morada,
-                    c.numero_interno as cliente_numero, c.telefone as cliente_telefone,
-                    c.email as cliente_email, c.nif as cliente_nif
-                FROM reparacao r
-                LEFT JOIN cliente c ON r.cliente_id = c.id
-                WHERE r.id = ?`,
-                [reparacaoId]
-            ),
-            pool.execute(
-                `SELECT tipopeca, marca, quantidade,
-                    COALESCE(preco_unitario, 0) as preco_unitario,
-                    COALESCE(preco_total, 0) as preco_total,
-                    COALESCE(desconto_percentual, 0) as desconto_percentual,
-                    COALESCE(preco_com_desconto, preco_unitario) as preco_com_desconto,
-                    COALESCE(observacao, '') as observacao,
-                    COALESCE(is_text, 0) as is_text,
-                    texto
-                FROM pecas_reparacao 
-                WHERE reparacao_id = ?
-                ORDER BY id ASC`,
-                [reparacaoId]
-            )
+            pool.execute(`SELECT r.*, c.nome as cliente_nome, c.morada as cliente_morada, c.numero_interno as cliente_numero, c.telefone as cliente_telefone, c.email as cliente_email, c.nif as cliente_nif FROM reparacao r LEFT JOIN cliente c ON r.cliente_id = c.id WHERE r.id = ?`, [reparacaoId]),
+            pool.execute(`SELECT tipopeca, marca, quantidade, COALESCE(preco_unitario, 0) as preco_unitario, COALESCE(preco_total, 0) as preco_total, COALESCE(desconto_percentual, 0) as desconto_percentual, COALESCE(preco_com_desconto, preco_unitario) as preco_com_desconto, COALESCE(observacao, '') as observacao, COALESCE(is_text, 0) as is_text, texto FROM pecas_reparacao WHERE reparacao_id = ? ORDER BY id ASC`, [reparacaoId])
         ]);
 
         const reparacao = reparacaoRows[0];
         const pecas = pecasRows[0];
 
         if (reparacao.length === 0) throw new Error("Reparação não encontrada");
-
         const rep = reparacao[0];
-        console.log(`✅ Reparação encontrada: ${rep.nomemaquina}`);
-        console.log(`📦 Encontradas ${pecas.length} peças`);
 
         return new Promise((resolve, reject) => {
             const doc = new PDFDocument({
                 margin: 0, size: "A4",
                 margins: { top: 40, bottom: 80, left: 60, right: 60 },
-                bufferPages: true // Otimização de memória para PDFs grandes
+                bufferPages: true
             });
 
             const chunks = [];
@@ -112,64 +88,96 @@ async function generateRepairPDF(reparacaoId) {
             try {
                 let y = 40;
                 const left = 40, right = 400;
-                // Ajustei ligeiramente as colunas para alinhar melhor valores grandes
                 const col = { d: left, ref: 290, qtd: 390, preco: 425, dsc: 475, total: 510 };
                 const pageBottom = doc.page.height - doc.page.margins.bottom;
                 const limit = () => pageBottom;
 
-                // Função auxiliar para formatação de moeda
-                const formatMoney = (val) => `${Number(val).toFixed(2)} €`;
-
-                const checkSpace = space => {
-                    if (y + space > limit()) {
-                        doc.addPage();
-                        y = 50; // Margem superior na nova página
-                    }
-                };
-
+                // Helper de texto original
                 const textBlock = (text, x, options = {}) => {
-                    if (!text) return; // Proteção contra null/undefined
+                    if (!text) return;
                     const height = doc.heightOfString(text, options);
-                    checkSpace(height);
+                    // checkSpace simples (original)
+                    if (y + height > limit()) { doc.addPage(); y = 50; }
                     doc.text(text, x, y, options);
                     y += height + 1;
                 };
 
-                // --- CABEÇALHO ---
-                doc.fontSize(10).font("Helvetica-Bold").text("Ouremáquinas Oliveira, Marques e Alves, Lda.", left, y);
-                y += 12;
-                doc.fontSize(9).font("Helvetica");
+                // Função checkSpace original
+                const checkSpace = space => {
+                    if (y + space > limit()) { doc.addPage(); y = 50; }
+                };
 
-                const companyInfo = [
-                    "Rua Dr. Francisco de Sá Carneiro, nº120",
-                    "2490-548 Ourém",
-                    "Tel.: 249 541 336",
-                    "(chamada para a rede fixa nacional)",
-                    "www.ouremaquinas.pt",
-                    "geral@ouremaquinas.pt"
-                ];
-                companyInfo.forEach(l => textBlock(l, left));
+                const formatMoney = (val) => `${Number(val).toFixed(2)} €`;
 
-                // --- CLIENTE ---
-                y = 40; // Reset Y para coluna da direita
-                doc.fontSize(9).font("Helvetica-Bold").text("Exmo(s). Sr(s).:", right, y);
-                y += 12;
-                textBlock((rep.cliente_nome || "CLIENTE NÃO IDENTIFICADO").toUpperCase(), right);
+                // ============================================================
+                // 1. FUNÇÃO PARA DESENHAR O CABEÇALHO (NOVA)
+                // ============================================================
+                const desenharCabecalho = () => {
+                    // Guarda o Y atual para saber onde continuar depois, mas desenha sempre no topo (40)
+                    let headerY = 40;
 
-                if (rep.cliente_morada) {
-                    const moradaLines = rep.cliente_morada.split(/,|\n/); // Divide por vírgula ou nova linha
-                    moradaLines.map(p => p.trim().toUpperCase())
-                        .filter(p => p.length > 0)
-                        .forEach(part => textBlock(part, right));
-                }
+                    // --- EMPRESA (Esquerda) ---
+                    doc.fontSize(10).font("Helvetica-Bold").text("Ouremáquinas Oliveira, Marques e Alves, Lda.", left, headerY);
+                    headerY += 12;
+                    doc.fontSize(9).font("Helvetica");
 
-                const clientInfo = [];
-                if (rep.cliente_numero) clientInfo.push(`Nº Cliente: 211110${rep.cliente_numero}`);
-                if (rep.cliente_nif) clientInfo.push(`NIF: ${rep.cliente_nif}`);
-                clientInfo.forEach(line => textBlock(line, right));
+                    const companyInfo = [
+                        "Rua Dr. Francisco de Sá Carneiro, nº120", "2490-548 Ourém",
+                        "Tel.: 249 541 336", "(chamada para a rede fixa nacional)",
+                        "www.ouremaquinas.pt", "geral@ouremaquinas.pt"
+                    ];
 
-                // --- TÍTULO E INFO REPARAÇÃO ---
-                y = Math.max(y, 120) + 20; // Garante espaço após cabeçalhos
+                    let yEmpresa = headerY;
+                    companyInfo.forEach(l => {
+                        doc.text(l, left, yEmpresa);
+                        yEmpresa += doc.heightOfString(l) + 1;
+                    });
+
+                    // --- CLIENTE (Direita) ---
+                    headerY = 40; // Reset para coluna direita
+                    doc.fontSize(9).font("Helvetica-Bold").text("Exmo(s). Sr(s).:", right, headerY);
+                    headerY += 12;
+
+                    let yCliente = headerY;
+
+                    // Nome Cliente
+                    doc.text((rep.cliente_nome || "CLIENTE NÃO IDENTIFICADO").toUpperCase(), right, yCliente);
+                    yCliente += doc.heightOfString((rep.cliente_nome || "").toUpperCase()) + 1;
+
+                    // Morada
+                    if (rep.cliente_morada) {
+                        const moradaLines = rep.cliente_morada.split(/,|\n/);
+                        moradaLines.map(p => p.trim().toUpperCase()).filter(p => p.length > 0)
+                            .forEach(part => {
+                                doc.text(part, right, yCliente);
+                                yCliente += doc.heightOfString(part) + 1;
+                            });
+                    }
+
+                    // Detalhes Cliente
+                    const clientInfo = [];
+                    if (rep.cliente_numero) clientInfo.push(`Nº Cliente: 211110${rep.cliente_numero}`);
+                    if (rep.cliente_nif) clientInfo.push(`NIF: ${rep.cliente_nif}`);
+
+                    clientInfo.forEach(line => {
+                        doc.text(line, right, yCliente);
+                        yCliente += doc.heightOfString(line) + 1;
+                    });
+
+                    // Retorna o Y onde o conteúdo da página deve começar
+                    // (O maior valor entre as duas colunas + margem)
+                    return Math.max(yEmpresa, yCliente) + 20;
+                };
+
+                // ============================================================
+                // 2. PRIMEIRA PÁGINA (EXECUÇÃO NORMAL)
+                // ============================================================
+
+                // Em vez de escrever o código aqui, chamamos a função
+                y = desenharCabecalho();
+
+                // --- TÍTULO E INFO REPARAÇÃO (Mantém-se igual) ---
+
                 checkSpace(30);
                 doc.fontSize(11).font("Helvetica-Bold").text("ORÇAMENTO DE REPARAÇÃO", 0, y, { align: "center" });
                 y += 20;
@@ -180,9 +188,8 @@ async function generateRepairPDF(reparacaoId) {
                     .text(`${rep.numreparacao || rep.id}`, { continued: false })
                     .font("Helvetica").fontSize(10);
 
-                // Data alinhada à direita na mesma linha
-                const dataStr = `Data: ${new Date(rep.dataentrega).toLocaleDateString("pt-PT")}`;
-                doc.text(dataStr, 450, y); // A posição Y é mantida da linha anterior se não usarmos textBlock
+                const dataStri = `Data: ${new Date(rep.dataentrega).toLocaleDateString("pt-PT")}`;
+                doc.text(dataStri, 450, y);
 
                 y += 14;
                 textBlock(`Estado: ${rep.estadoorcamento || "N/A"}`, left);
@@ -202,45 +209,32 @@ async function generateRepairPDF(reparacaoId) {
                 doc.fontSize(11).font("Helvetica-Bold").text("PEÇAS E SERVIÇOS", left, y);
                 y += 15;
 
-                // Cabeçalho da Tabela
+                // (Cabeçalho da Tabela - Igual)
                 doc.fontSize(9).font("Helvetica-Bold");
-                doc.text("DESCRIÇÃO", col.d, y);
-                doc.text("REF. INTERNA", col.ref, y);
-                doc.text("QTD", col.qtd, y);
-                doc.text("PREÇO", col.preco, y);
-                doc.text("DSC", col.dsc, y);
-                doc.text("TOTAL", col.total, y);
-
+                doc.text("DESCRIÇÃO", col.d, y); doc.text("REF. INTERNA", col.ref, y);
+                doc.text("QTD", col.qtd, y); doc.text("PREÇO", col.preco, y);
+                doc.text("DSC", col.dsc, y); doc.text("TOTAL", col.total, y);
                 y += 10;
                 doc.moveTo(col.d, y).lineTo(550, y).lineWidth(1).stroke();
                 y += 8;
 
                 let totalPecas = 0;
-
-                // Itens da Tabela
                 doc.font("Helvetica").fontSize(9);
 
+                // LOOP PEÇAS (Igual)
                 for (const p of pecas) {
+                    // ... (O teu código do loop de peças mantém-se INTACTO aqui) ...
+                    // Vou resumir para não ocupar espaço, mas deves manter o teu bloco `for` original
                     if (p.is_text) {
-                        // Linha de comentário/texto
                         const linha = p.texto || p.observacao || p.tipopeca || "";
                         if (!linha.trim()) continue;
-
                         checkSpace(14);
-                        doc.font("Helvetica-Oblique").fillColor("#444444")
-                            .text(linha, col.d, y, { width: col.total - col.d });
-
+                        doc.font("Helvetica-Oblique").fillColor("#444444").text(linha, col.d, y, { width: col.total - col.d });
                         doc.fillColor("black").font("Helvetica");
                         y += 12;
-
-                        // Linha separadora tracejada leve
-                        doc.moveTo(col.d, y - 2).lineTo(550, y - 2)
-                            .dash(1, { space: 2 }).strokeColor("#eeeeee").stroke()
-                            .undash().strokeColor("black");
+                        doc.moveTo(col.d, y - 2).lineTo(550, y - 2).dash(1, { space: 2 }).strokeColor("#eeeeee").stroke().undash().strokeColor("black");
                         continue;
                     }
-
-                    // Linha de Peça Normal
                     const qtd = Number(p.quantidade || 0);
                     const unit = Number(p.preco_unitario || 0);
                     const desc = Number(p.desconto_percentual || 0);
@@ -248,13 +242,8 @@ async function generateRepairPDF(reparacaoId) {
                     const total = final * qtd;
 
                     checkSpace(14);
-
-                    // Truncar textos muito longos para não quebrar layout
-                    const tipoPecaText = (p.tipopeca || "").substring(0, 45);
-                    const marcaText = (p.marca || "").substring(0, 20);
-
-                    doc.text(tipoPecaText, col.d, y, { width: col.ref - col.d - 5, ellipsis: true });
-                    doc.text(marcaText, col.ref, y, { width: col.qtd - col.ref - 5, ellipsis: true });
+                    doc.text((p.tipopeca || "").substring(0, 45), col.d, y, { width: col.ref - col.d - 5, ellipsis: true });
+                    doc.text((p.marca || "").substring(0, 20), col.ref, y, { width: col.qtd - col.ref - 5, ellipsis: true });
                     doc.text(qtd.toString(), col.qtd, y);
                     doc.text(formatMoney(unit), col.preco, y);
                     doc.text(desc > 0 ? `${desc.toFixed(1)}%` : "-", col.dsc, y);
@@ -262,101 +251,175 @@ async function generateRepairPDF(reparacaoId) {
 
                     totalPecas += total;
                     y += 14;
-
-                    // Linha separadora item
-                    doc.moveTo(col.d, y - 4).lineTo(550, y - 4)
-                        .dash(1, { space: 2 }).strokeColor("#cccccc").stroke()
-                        .undash().strokeColor("black");
+                    doc.moveTo(col.d, y - 4).lineTo(550, y - 4).dash(1, { space: 2 }).strokeColor("#cccccc").stroke().undash().strokeColor("black");
                 }
 
-                // --- TOTAIS (MOVIMENTADO PARA O FUNDO) ---
+                // --- TOTAIS E RODAPÉ (Igual ao teu original) ---
                 const maoObra = Number(rep.mao_obra) || 0;
                 const totalGeral = totalPecas + maoObra;
-
-                // Constantes para cálculo de posicionamento no fundo
-                const footerHeight = 75; // Altura estimada para o bloco de condições (rodapé)
-                const totalsBlockHeight = 130; // Altura estimada para o bloco de totais
-                const spaceBetween = 15; // Espaço entre o bloco de totais e o rodapé
-
-                // Calcula a posição Y onde o bloco de totais deve começar para ficar alinhado ao fundo
+                const footerHeight = 75;
+                const totalsBlockHeight = 130;
+                const spaceBetween = 15;
                 let totalsStartY = pageBottom - footerHeight - spaceBetween - totalsBlockHeight;
 
-                // Se a tabela de peças já ultrapassou essa posição, força uma nova página
-                if (y > totalsStartY) {
-                    doc.addPage();
-                    // Recalcula a posição de início na nova página (será a mesma coordenada Y)
-                    totalsStartY = pageBottom - footerHeight - spaceBetween - totalsBlockHeight;
-                    y = totalsStartY;
-                } else {
-                    // Move o cursor Y diretamente para a posição calculada no fundo da página atual
-                    y = totalsStartY;
-                }
+                if (y > totalsStartY) { doc.addPage(); totalsStartY = pageBottom - footerHeight - spaceBetween - totalsBlockHeight; y = totalsStartY; }
+                else { y = totalsStartY; }
 
-                // Alinhamento à direita para os totais
-                const labelX = 320;
-                const valueX = 440;
-
+                // Bloco de Totais
+                const labelX = 320; const valueX = 440;
                 doc.font("Helvetica").fontSize(9);
-
-                // Subtotal Peças
                 doc.text("Subtotal Peças:", labelX, y, { align: "right", width: 110 });
                 doc.text(formatMoney(totalPecas), valueX, y, { align: "right", width: 100 });
                 y += 14;
-
-                // Mão de Obra
                 doc.text("Mão de Obra:", labelX, y, { align: "right", width: 110 });
                 doc.text(formatMoney(maoObra), valueX, y, { align: "right", width: 100 });
                 y += 14;
-
-                // Linha de soma
                 doc.moveTo(labelX + 20, y - 2).lineTo(550, y - 2).stroke();
                 y += 5;
-
-                // Valor Líquido
                 doc.fontSize(10).font("Helvetica-Bold");
                 doc.text("Total Líquido:", labelX, y, { align: "right", width: 110 });
                 doc.text(formatMoney(totalGeral), valueX, y, { align: "right", width: 100 });
                 y += 16;
-
-                // IVA
                 const valorIva = totalGeral * 0.23;
                 const totalComIva = totalGeral + valorIva;
-
                 doc.fontSize(10).font("Helvetica").fillColor("#444444");
                 doc.text("IVA (23%):", labelX, y, { align: "right", width: 110 });
                 doc.text(formatMoney(valorIva), valueX, y, { align: "right", width: 100 });
                 y += 16;
-
-                // Total Final (Destaque)
                 doc.rect(labelX, y - 4, 240, 24).fillColor("#f0f0f0").fill();
                 doc.fillColor("black").fontSize(12).font("Helvetica-Bold");
-                // Ajuste vertical para centralizar no retângulo
                 doc.text("TOTAL A PAGAR:", labelX + 10, y + 2);
                 doc.text(formatMoney(totalComIva), valueX, y + 2, { align: "right", width: 90 });
 
-                // --- RODAPÉ (CONDIÇÕES GERAIS) ---
-                // A posição Y para o rodapé é calculada para ser fixa no fundo
-                const footerY = pageBottom - footerHeight;
-
-                // Garante que o cursor está na posição correta para o rodapé
-                y = footerY;
-
+                // Rodapé
+                y = pageBottom - footerHeight;
                 doc.fontSize(8).font("Helvetica-Bold").text("CONDIÇÕES GERAIS:", left, y);
                 y += 12;
                 doc.fontSize(7).font("Helvetica");
-
                 const condicoes = [
-                    "• Orçamento válido por 30 dias.",
-                    "• A reparação inicia-se após aprovação.",
-                    "• Equipamentos não levantados em 60 dias sujeitos a taxa de 10€/dia.",
-                    "• Passados 6 meses, consideram-se abandonados.",
-                    "• Não asseguramos assistência a produtos fora da nossa circulação."
+                    "• Não asseguramos assistência a produtos não comercializados por nós.",
+                    "• Orçamento válido por 30 dias. A reparação inicia-se após aprovação.",
+                    "• A devolução de equipamentos montados cujo o orçamento tenha sido recusado, implica um custo de 25€",
+                    "• Equipamentos não levantados no prazo de 60 dias, serão sujeitos a taxa de armazenagem de 5€/dia.",
+                    "• Equipamentos não levantados no prazo de 6 meses consideram-se abandonados.",
                 ];
+                condicoes.forEach(cond => { doc.text(cond, left, y); y += 9; });
 
-                condicoes.forEach(cond => {
-                    doc.text(cond, left, y);
-                    y += 9;
-                });
+                // ============================================================
+                // 3. SEGUNDA PÁGINA - FOLHA DE APROVAÇÃO
+                // ============================================================
+
+                // 1. Força SEMPRE uma nova página para a folha de aprovação
+                doc.addPage();
+
+                // 2. Desenha o cabeçalho e obtém o Y inicial
+                y = desenharCabecalho();
+
+                // Ajuste de segurança para garantir que não escrevemos cima do cabeçalho
+                y = Math.max(y, 100) + 20;
+
+                // --- TÍTULO ---
+                doc.fontSize(11).font("Helvetica-Bold").text("ORÇAMENTO DE REPARAÇÃO", 0, y, { align: "center" });
+                y += 20;
+
+                // --- DADOS DO ORÇAMENTO (Nº e Data) ---
+                doc.fontSize(10).font("Helvetica")
+                    .text(`Reparação Nº: `, left, y, { continued: true })
+                    .font("Helvetica-Bold").fontSize(11)
+                    .text(`${rep.numreparacao || rep.id}`, { continued: false })
+                    .font("Helvetica").fontSize(10);
+
+                const dataStr = `Data: ${new Date(rep.dataentrega).toLocaleDateString("pt-PT")}`;
+                // Desenha a data alinhada à direita (posição 450 fixada para A4 padrão)
+                doc.text(dataStr, 450, y);
+
+                y += 14;
+                textBlock(`Estado: ${rep.estadoorcamento || "N/A"}`, left);
+
+                // --- EQUIPAMENTO ---
+                y += 10;
+                doc.fontSize(11).font("Helvetica-Bold").text("EQUIPAMENTO", left, y);
+                y += 14;
+
+                // Usamos text normal em vez de textBlock aqui para ter mais controlo caso o nome seja longo
+                doc.fontSize(10).font("Helvetica");
+                doc.text(`Máquina: ${rep.nomemaquina}`, left, y, { width: 480 }); // Limita a largura para não bater na margem
+                y += doc.heightOfString(`Máquina: ${rep.nomemaquina}`, { width: 480 }) + 2;
+
+                textBlock(`Estado da Reparação: ${rep.estadoreparacao || "Pendente"}`, left);
+
+                y += 20; // Espaço extra para separar a info do texto legal
+
+                // --- TEXTO INTRODUTÓRIO ---
+                doc.font("Helvetica").fontSize(10);
+                doc.text("Exmos. Senhores,", left, y);
+                y += 15;
+                doc.text("Junto enviamos o Orçamento referente à reparação do equipamento supra referido.", left, y);
+                y += 15;
+                doc.text("Agradecemos que nos transmitam, com a possível brevidade, as instruções que julgarem convenientes, assinalando \"X\" nas quadrículas adequadas para o efeito:", left, y);
+                y += 25;
+
+                // --- FUNÇÃO AUXILIAR PARA CHECKBOXES (Mantida igual, funciona bem) ---
+                const drawCheckboxOption = (texto, indent = 0) => {
+                    const boxSize = 12;
+                    const textX = left + 20 + indent;
+                    const boxX = left + indent;
+                    const maxTextWidth = 450 - indent;
+
+                    // Verifica se ainda estamos dentro da página (segurança)
+                    if (y + 30 > pageBottom) { doc.addPage(); y = 50; }
+
+                    doc.rect(boxX, y, boxSize, boxSize).stroke();
+
+                    const textOptions = { width: maxTextWidth, align: 'left' };
+                    const textHeight = doc.heightOfString(texto, textOptions);
+
+                    // Centralizar texto verticalmente com a caixa se for linha única
+                    const textY = textHeight < 15 ? y + 2 : y;
+
+                    doc.text(texto, textX, textY, textOptions);
+
+                    y += Math.max(textHeight, boxSize) + 12;
+                };
+
+                // --- OPÇÕES ---
+                drawCheckboxOption("Procedam a reparação da máquina / equipamento supra referido. Compreendemos que este valor é um valor estimado e que o custo final da reparação poderá ser diferente do agora apresentado.");
+
+                y += 5;
+                drawCheckboxOption("Não aceitamos a reparação relativa ao Orçamento apresentado. Queiram proceder à devolução da máquina / equipamento para as nossas instalações, nas seguintes condições:");
+
+                // Sub-opções
+                const subIndent = 25;
+                drawCheckboxOption("Montada (Implica débito no valor de 25,00 EUR + Portes envio)", subIndent);
+                drawCheckboxOption("Desmontada (Implica débito no valor de 15,00 EUR + Portes envio)", subIndent);
+
+                // --- ESPAÇO PARA ASSINATURA ---
+                // Corrigido o erro de sintaxe (estava "6" numa linha e "0" noutra)
+                const signatureBlockHeight = 60;
+
+                // Calcula onde começar a assinatura (fundo da página)
+                let signatureY = pageBottom - signatureBlockHeight;
+
+                // Lógica de Segurança:
+                // Se o conteúdo acima ocupou muito espaço e está a sobrepor o fundo,
+                // empurra a assinatura para logo abaixo do texto (respeitando margem mínima)
+                if (signatureY < y + 10) {
+                    signatureY = y + 10;
+                }
+
+                // Se mesmo assim já passou do limite da página, adiciona nova (muito raro acontecer com este texto)
+                if (signatureY + signatureBlockHeight > doc.page.height) {
+                    doc.addPage();
+                    signatureY = 50;
+                }
+
+                doc.font("Helvetica").fontSize(10);
+                doc.text("Data: _____ / _____ / ________", left, signatureY);
+                doc.text(" Assinatura do Cliente", 350, signatureY);
+
+                // Linha para assinar
+                doc.moveTo(350, signatureY + 35).lineTo(520, signatureY + 35).lineWidth(1).stroke();
+                doc.font("Helvetica-Oblique").fontSize(8).text("(Assinatura e Carimbo)", 350, signatureY + 40);
 
                 doc.end();
 
@@ -1708,7 +1771,7 @@ app.get("/reparacoes/:id/pdf", async (req, res) => {
         const numReparacao = result[0].numreparacao || id;
 
         const pdfBuffer = await generateRepairPDF(id);
- 
+
         // Configurar headers com nome personalizado
         const filename = `Reparação nº ${numReparacao}.pdf`;
         const encodedFilename = encodeURIComponent(filename);
