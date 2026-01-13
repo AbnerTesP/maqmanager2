@@ -130,6 +130,10 @@ function ReparacoesView() {
                 removerAcentos(reparacao.cliente_nome).includes(termoLimpo) ||
                 removerAcentos(reparacao.numreparacao?.toString()).includes(termoLimpo)
             )
+        }).sort((a, b) => {
+            const numA = a.numreparacao ? String(a.numreparacao) : ""
+            const numB = b.numreparacao ? String(b.numreparacao) : ""
+            return numB.localeCompare(numA, undefined, { numeric: true })
         })
     }, [reparacoes, searchTerm, filterStatus, getStatus])
 

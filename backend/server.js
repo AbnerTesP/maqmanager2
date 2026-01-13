@@ -15,10 +15,10 @@ app.use(express.json())
 
 // POOL DE CONEXÕES
 const dbConfig = {
-    host: process.env.DB_HOST || "localhost",
+    host: process.env.DB_HOST || "192.168.1.81",
     user: process.env.DB_USER || "root",
     password: process.env.DB_PASSWORD || "",
-    database: process.env.DB_NAME || "reparacoes",
+    database: process.env.DB_NAME || "maqmanager",
     port: process.env.DB_PORT || 3306,
     waitForConnections: true,
     connectionLimit: 10,
@@ -33,6 +33,21 @@ const dbConfig = {
 }
 
 const pool = mysql.createPool(dbConfig)
+
+// --- VERIFICAÇÃO DE CONEXÃO AO ARRANQUE ---
+pool.getConnection()
+    .then(connection => {
+        console.log(`✅ Conectado com sucesso ao banco de dados em ${dbConfig.host}`);
+        connection.release();
+    })
+    .catch(err => {
+        console.error("❌ Falha fatal na conexão ao banco de dados:", err);
+        try {
+            const { dialog } = require('electron');
+            dialog.showErrorBox('Erro de Conexão ao Banco de Dados',
+                `Não foi possível conectar ao MySQL em ${dbConfig.host}.\n\nErro: ${err.message}\n\nVerifique se o IP está correto e se o servidor MySQL está rodando.`);
+        } catch (e) { /* Ignora se não estiver no ambiente Electron */ }
+    });
 
 // ==================== FUNÇÕES UTILITÁRIAS ====================
 // Função utilitária
@@ -188,8 +203,11 @@ async function generateRepairPDF(reparacaoId) {
                     .text(`${rep.numreparacao || rep.id}`, { continued: false })
                     .font("Helvetica").fontSize(10);
 
-                const dataStri = `Data: ${new Date(rep.dataentrega).toLocaleDateString("pt-PT")}`;
-                doc.text(dataStri, 450, y);
+                const dataString = `Data Entrada: ${new Date(rep.dataentrega).toLocaleDateString("pt-PT")}`;
+                doc.text(dataString, 420, y);
+
+                const dataStri = `Data Orçamento: ${new Date().toLocaleDateString("pt-PT")}`;
+                doc.text(dataStri, 420, y + 14);
 
                 y += 14;
                 textBlock(`Estado: ${rep.estadoorcamento || "N/A"}`, left);
@@ -329,7 +347,7 @@ async function generateRepairPDF(reparacaoId) {
                     .text(`${rep.numreparacao || rep.id}`, { continued: false })
                     .font("Helvetica").fontSize(10);
 
-                const dataStr = `Data: ${new Date(rep.dataentrega).toLocaleDateString("pt-PT")}`;
+                const dataStr = `Data: ${new Date().toLocaleDateString("pt-PT")}`;
                 // Desenha a data alinhada à direita (posição 450 fixada para A4 padrão)
                 doc.text(dataStr, 450, y);
 
@@ -480,7 +498,7 @@ async function verificarAlarmesImediatos(reparacaoId) {
       FROM reparacao r
       LEFT JOIN cliente c ON r.cliente_id = c.id
       WHERE r.id = ?
-      AND (r.estadoreparacao != 'Concluída' AND r.estadoreparacao != 'Entregue')
+      AND (r.estadoreparacao != 'Concluída' AND r.estadoreparacao != 'Entregue' AND r.estadoreparacao != 'Sem reparação')
       HAVING tipo_alarme IS NOT NULL
     `
 
@@ -555,6 +573,7 @@ app.get("/alarmes/todos", async (req, res) => {
         c.nome as cliente_nome,
         c.telefone as cliente_telefone,
         c.email as cliente_email,
+        c.numero_interno as numcliente,
         
         -- Calcular dias para cada tipo de alarme
         CASE 
@@ -596,7 +615,7 @@ app.get("/alarmes/todos", async (req, res) => {
         
       FROM reparacao r
       LEFT JOIN cliente c ON r.cliente_id = c.id
-      WHERE (r.estadoreparacao != 'Concluída' AND r.estadoreparacao != 'Entregue')
+      WHERE (r.estadoreparacao != 'Concluída' AND r.estadoreparacao != 'Entregue' AND r.estadoreparacao != 'Sem reparação')
       HAVING tipo_alarme IS NOT NULL
       ORDER BY dias_alerta DESC
     `
@@ -693,7 +712,7 @@ app.get("/alarmes/estatisticas", async (req, res) => {
           r.alarme_visto
           
         FROM reparacao r
-        WHERE (r.estadoreparacao != 'Concluída' AND r.estadoreparacao != 'Entregue')
+        WHERE (r.estadoreparacao != 'Concluída' AND r.estadoreparacao != 'Entregue' AND r.estadoreparacao != 'Sem reparação')
       ) as alarmes_calculados
       WHERE tipo_alarme IS NOT NULL
     `
@@ -741,7 +760,7 @@ app.get("/alarmes/por-tipo", async (req, res) => {
           END as dias_alerta
           
         FROM reparacao r
-        WHERE (r.estadoreparacao != 'Concluída' AND r.estadoreparacao != 'Entregue')
+        WHERE (r.estadoreparacao != 'Concluída' AND r.estadoreparacao != 'Entregue' AND r.estadoreparacao != 'Sem reparação')
       ) as alarmes_calculados
       WHERE tipo_alarme IS NOT NULL
       GROUP BY tipo_alarme
@@ -802,7 +821,7 @@ app.get("/alarmes/tendencias", async (req, res) => {
           END as dias_alerta
           
         FROM reparacao r
-        WHERE (r.estadoreparacao != 'Concluída' AND r.estadoreparacao != 'Entregue')
+        WHERE (r.estadoreparacao != 'Concluída' AND r.estadoreparacao != 'Entregue' AND r.estadoreparacao != 'Sem reparação')
       ) as alarmes_calculados
       WHERE tipo_alarme IS NOT NULL
     `
@@ -837,10 +856,10 @@ app.put("/alarmes/marcar-visto/:id", async (req, res) => {
     try {
         // Primeiro, verificar se a reparação existe e determinar o tipo de alarme se não fornecido
         let tipoAlarmeDetectado = tipo_alarme
+        let diasDecorridos = 0
 
-        if (!tipoAlarmeDetectado) {
-            const [reparacaoInfo] = await pool.execute(
-                `
+        const [reparacaoInfo] = await pool.execute(
+            `
                 SELECT 
                     r.estadoorcamento,
                     r.dataentrega,
@@ -859,24 +878,41 @@ app.put("/alarmes/marcar-visto/:id", async (req, res) => {
                          AND DATEDIFF(CURDATE(), r.data_orcamento_recusado) >= 15
                         THEN 'orcamento_recusado'
                         ELSE NULL
-                    END as tipo_alarme_detectado
+                    END as tipo_alarme_detectado,
+                    CASE
+                        WHEN (r.estadoorcamento IS NULL OR r.estadoorcamento = '' OR r.estadoorcamento = 'Em processo')
+                        THEN DATEDIFF(CURDATE(), r.dataentrega)
+                        WHEN r.estadoorcamento IN ('Aceito') AND r.data_orcamento_aceito IS NOT NULL
+                        THEN DATEDIFF(CURDATE(), r.data_orcamento_aceito)
+                        WHEN r.estadoorcamento IN ('Recusado') AND r.data_orcamento_recusado IS NOT NULL
+                        THEN DATEDIFF(CURDATE(), r.data_orcamento_recusado)
+                        ELSE 0
+                    END as dias_decorridos
                 FROM reparacao r
                 WHERE r.id = ?
             `,
-                [id],
-            )
+            [id],
+        )
 
-            if (reparacaoInfo.length === 0) {
-                return res.status(404).json({ error: "Reparação não encontrada" })
-            }
+        if (reparacaoInfo.length === 0) {
+            return res.status(404).json({ error: "Reparação não encontrada" })
+        }
 
+        // Se não foi passado, usar o detectado
+        if (!tipoAlarmeDetectado) {
             tipoAlarmeDetectado = reparacaoInfo[0].tipo_alarme_detectado
-
             if (!tipoAlarmeDetectado) {
-                return res.status(400).json({ error: "Esta reparação não possui alarmes ativos" })
+                return res.status(400).json({ error: "Esta reparação não possiu alarmes ativos " })
             }
         }
 
+        diasDecorridos = reparacaoInfo[0].dias_decorridos || 0
+
+        if (!tipoAlarmeDetectado) {
+            return res.status(400).json({ error: "Esta reparação não possiu alarmes ativos" })
+        }
+
+        // Atualizar o campo apropriado baseado no tipo de alarme
         let sql = ""
         const hoje = new Date().toISOString().split("T")[0]
 
@@ -903,9 +939,30 @@ app.put("/alarmes/marcar-visto/:id", async (req, res) => {
 
         // Registrar no histórico se a tabela existir
         try {
+            // Determinar prioridade baseada no tipo e dias
+            let prioridade = "Baixo"
+            switch (tipoAlarmeDetectado) {
+                case "sem_orcamento":
+                    if (diasDecorridos >= 30) prioridade = "Crítico"
+                    else if (diasDecorridos >= 20) prioridade = "Alto"
+                    else if (diasDecorridos >= 15) prioridade = "Médio"
+                    break
+                case "orcamento_aceito":
+                    if (diasDecorridos >= 60) prioridade = "Crítico"
+                    else if (diasDecorridos >= 45) prioridade = "Alto"
+                    else if (diasDecorridos >= 30) prioridade = "Médio"
+                    break
+                case "orcamento_recusado":
+                    if (diasDecorridos >= 45) prioridade = "Crítico"
+                    else if (diasDecorridos >= 30) prioridade = "Alto"
+                    else if (diasDecorridos >= 15) prioridade = "Médio"
+                    break
+            }
+
+            const mensagem = `Alarme marcado como visto (${diasDecorridos} dias)`
             await pool.execute(
-                "INSERT INTO alarmes_historico (reparacao_id, tipo_alarme, data_alarme, data_visto, visto) VALUES (?, ?, NOW(), NOW(), 1)",
-                [id, tipoAlarmeDetectado],
+                "INSERT INTO alarmes_historico (reparacao_id, tipo_alarme, data_alarme, prioridade, visto, data_visto, mensagem, dias_decorridos) VALUES (?, ?, NOW(), ?, 1, NOW(), ?, ?)",
+                [id, tipoAlarmeDetectado, prioridade, mensagem, diasDecorridos],
             )
         } catch (histErr) {
             console.log("Aviso: Não foi possível registrar no histórico:", histErr.message)
@@ -966,7 +1023,7 @@ app.get("/alarmes/resumo", async (req, res) => {
           END as dias_alerta
           
         FROM reparacao r
-        WHERE (r.estadoreparacao != 'Concluída' AND r.estadoreparacao != 'Entregue')
+        WHERE (r.estadoreparacao != 'Concluída' AND r.estadoreparacao != 'Entregue' AND r.estadoreparacao != 'Sem reparação')
       ) as alarmes_calculados
       JOIN reparacao r ON alarmes_calculados.id = r.id
       WHERE tipo_alarme IS NOT NULL
@@ -1037,7 +1094,7 @@ app.get("/alarmes/debug/:id", async (req, res) => {
                 
                 -- Verificar se deveria aparecer em alarmes
                 CASE 
-                    WHEN (r.estadoreparacao = 'Concluída' OR r.estadoreparacao = 'Entregue') 
+                    WHEN (r.estadoreparacao = 'Concluída' OR r.estadoreparacao = 'Entregue' OR r.estadoreparacao = 'Sem reparação') 
                     THEN 'NÃO - Reparação finalizada'
                     WHEN (r.estadoorcamento IS NULL OR r.estadoorcamento = '' OR r.estadoorcamento = 'Em processo')
                          AND DATEDIFF(CURDATE(), r.dataentrega) >= 15
@@ -1111,7 +1168,7 @@ app.get("/alarmes/debug-geral", async (req, res) => {
                 DATEDIFF(CURDATE(), r.dataentrega) as dias_desde_entrada,
                 
                 CASE 
-                    WHEN (r.estadoreparacao = 'Concluída' OR r.estadoreparacao = 'Entregue') 
+                    WHEN (r.estadoreparacao = 'Concluída' OR r.estadoreparacao = 'Entregue' OR r.estadoreparacao = 'Sem reparação') 
                     THEN 'EXCLUÍDA - Finalizada'
                     WHEN (r.estadoorcamento IS NULL OR r.estadoorcamento = '' OR r.estadoorcamento = 'Em processo')
                          AND DATEDIFF(CURDATE(), r.dataentrega) >= 15
@@ -1910,3 +1967,13 @@ const PORT = process.env.PORT || 8082
 const server = app.listen(PORT, () => {
     console.log(`🚀 Servidor rodando na porta ${PORT}`)
 })
+
+// --- TRATAMENTO DE ERROS DO SERVIDOR (PORTA OCUPADA, ETC) ---
+server.on('error', (error) => {
+    console.error("❌ Erro ao iniciar o servidor express:", error);
+    try {
+        const { dialog } = require('electron');
+        dialog.showErrorBox('Erro no Servidor Backend',
+            `O servidor não conseguiu iniciar na porta ${PORT}.\n\nErro: ${error.code === 'EADDRINUSE' ? 'A porta já está em uso.' : error.message}`);
+    } catch (e) { /* Ignora */ }
+});

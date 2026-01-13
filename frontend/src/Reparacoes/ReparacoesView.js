@@ -424,6 +424,10 @@ function ReparacoesView() {
                                         <label className="small text-muted">Nome</label>
                                         <div className="fw-bold text-dark fs-5">{reparacao.cliente_nome}</div>
                                     </div>
+                                    <div className="mb-3">
+                                        <label className="small text-muted">Nº Cliente</label>
+                                        <div className="fw-bold text-dark fs-5">{reparacao.cliente_numero || "N/A"}</div>
+                                    </div>
 
                                     <div className="mb-3">
                                         <label className="small text-muted">Telefone</label>
@@ -463,6 +467,7 @@ function ReparacoesView() {
                                         <div className="d-flex justify-content-between mb-2 text-warning">
                                             <span>Desconto</span>
                                             <span>- {formatCurrency(totais.valorDesconto)}</span>
+                                            
                                         </div>
                                     )}
                                     <div className="d-flex justify-content-between mb-1">

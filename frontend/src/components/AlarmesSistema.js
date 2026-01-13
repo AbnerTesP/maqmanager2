@@ -39,6 +39,10 @@ const DetalhesAlarmeModal = ({ alarme, onClose, onMarkAsSeen }) => {
                                     <small className="text-muted d-block text-uppercase fw-bold" style={{ fontSize: '0.7rem' }}>Cliente</small>
                                     <span className="fw-semibold">{alarme.cliente_nome}</span>
                                 </div>
+                                <div className="col-6">
+                                    <small className="text-muted d-block text-uppercase fw-bold" style={{ fontSize: '0.7rem' }}>Nº Cliente</small>
+                                    <span className="fw-semibold">{alarme.numcliente || 'N/A'}</span>
+                                </div>
                                 <div className="col-6 mt-2">
                                     <small className="text-muted d-block text-uppercase fw-bold" style={{ fontSize: '0.7rem' }}>Centro</small>
                                     <span className="fw-semibold"><i className="bi bi-geo-alt me-1"></i>{alarme.nomecentro || 'N/A'}</span>

@@ -10,7 +10,9 @@ async function createWindow() {
         height: 600,
         webPreferences: {
             preload: path.join(__dirname, 'preload.js')
-        }
+        },
+
+        icon: path.join(__dirname, 'frontend/build/Logotipo.ico'),
     });
 
     const startUrl = isDev ? 'http://localhost:3000' : `file://${path.join(__dirname, '../build/index.html')}`;
