@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useMemo, useCallback } from "react"
 import axios from "axios"
+import ReactModal from 'react-modal'
 import DataTable from "react-data-table-component"
 import { useNavigate, useParams } from "react-router-dom"
 import "bootstrap/dist/css/bootstrap.min.css"
@@ -62,6 +63,8 @@ function ReparacoesView() {
     const [reparacoes, setReparacoes] = useState([])
     const [reparacao, setReparacao] = useState(null)
     const [pecas, setPecas] = useState([])
+    const [showPdfModal, setShowPdfModal] = useState(false)
+    const [pendingPdfAction, setPendingPdfAction] = useState(null) // 'view' ou 'download'
 
     // UI States
     const [loading, setLoading] = useState(true)
@@ -83,6 +86,7 @@ function ReparacoesView() {
 
     // Roteamento e Carregamento Inicial
     useEffect(() => {
+        ReactModal.setAppElement('#root');
         if (id && !isNaN(id)) {
             setView("detail")
             fetchDetalhesReparacao(id)
@@ -158,11 +162,17 @@ function ReparacoesView() {
         }
     }, [id, view, navigate, axiosConfig])
 
-    const handlePDF = useCallback(async (action) => {
-        if (!reparacao) return
-        const url = `${API_BASE_URL}/reparacoes/${reparacao.id}/pdf`
+    const openPdfModal = useCallback((action) => {
+        setPendingPdfAction(action)
+        setShowPdfModal(true)
+    }, [])
 
-        if (action === 'view') {
+    const executePDF = useCallback(async (pages) => {
+        setShowPdfModal(false)
+        if (!reparacao) return;
+        const url = `${API_BASE_URL}/reparacoes/${reparacao.id}/pdf?pages=${pages}`
+
+        if (pendingPdfAction === 'view') {
             window.open(url, "_blank")
         } else {
             try {
@@ -178,7 +188,7 @@ function ReparacoesView() {
                 handleError(err, "Erro ao baixar PDF")
             }
         }
-    }, [reparacao, axiosConfig])
+    }, [reparacao, pendingPdfAction, axiosConfig])
 
     // --- MEMOS & CÁLCULOS ---
 
@@ -467,7 +477,7 @@ function ReparacoesView() {
                                         <div className="d-flex justify-content-between mb-2 text-warning">
                                             <span>Desconto</span>
                                             <span>- {formatCurrency(totais.valorDesconto)}</span>
-                                            
+
                                         </div>
                                     )}
                                     <div className="d-flex justify-content-between mb-1">
@@ -482,7 +492,10 @@ function ReparacoesView() {
                                     </div>
 
                                     <div className="mt-4 d-grid gap-2">
-                                        <button className="btn btn-light fw-bold text-primary" onClick={() => handlePDF('download')}>
+                                        <button className="btn btn-outline-light fw-bold" onClick={() => openPdfModal('view')}>
+                                            <i className="bi bi-eye me-2"></i>Pré-visualizar
+                                        </button>
+                                        <button className="btn btn-light fw-bold text-primary" onClick={() => openPdfModal('download')}>
                                             <i className="bi bi-file-earmark-pdf me-2"></i>Baixar Orçamento
                                         </button>
                                     </div>
@@ -491,6 +504,35 @@ function ReparacoesView() {
 
                         </div>
                     </div>
+
+                    {/* MODAL DE SELEÇÃO DE PÁGINAS */}
+                    <ReactModal
+                        isOpen={showPdfModal}
+                        onRequestClose={() => setShowPdfModal(false)}
+                        contentLabel="Selecionar Páginas PDF"
+                        className="ReactModal__Content"
+                        overlayClassName="ReactModal__Overlay"
+                        style={{
+                            content: { maxWidth: '400px', margin: 'auto', height: 'auto', maxHeight: '300px', padding: '20px', borderRadius: '8px' },
+                            overlay: { backgroundColor: 'rgba(0, 0, 0, 0.75)', zIndex: 1050, display: 'flex', alignItems: 'center', justifyContent: 'center' }
+                        }}
+                    >
+                        <div className="text-center">
+                            <h5 className="mb-4 fw-bold text-white"><i className="bi bi-file-pdf me-2 text-danger"></i>Selecionar Páginas</h5>
+                            <div className="d-grid gap-2">
+                                <button className="btn btn-primary" onClick={() => executePDF('all')}>
+                                    (Orçamento + Aprovação)
+                                </button>
+                                <button className="btn btn-outline-secondary" onClick={() => executePDF('1')}>
+                                    Orçamento (Pág. 1)
+                                </button>
+                                <button className="btn btn-outline-secondary" onClick={() => executePDF('2')}>
+                                    Folha de Aprovação (Pág. 2)
+                                </button>
+                                <button className="btn btn-link text-white mt-2" onClick={() => setShowPdfModal(false)}>Cancelar</button>
+                            </div>
+                        </div>
+                    </ReactModal>
                 </div>
             </div>
         )

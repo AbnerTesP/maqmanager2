@@ -72,7 +72,7 @@ function handleQueryError(err, res, message) {
 // e força a posição 'y' para o fundo da página antes de desenhar os totais.
 // Se a lista de peças for muito longa, cria uma nova página e desenha os totais no fundo dela.
 
-async function generateRepairPDF(reparacaoId) {
+async function generateRepairPDF(reparacaoId, pages = 'all') {
     try {
         console.log(`🔍 Buscando dados para PDF da reparação ${reparacaoId}`);
 
@@ -92,7 +92,8 @@ async function generateRepairPDF(reparacaoId) {
             const doc = new PDFDocument({
                 margin: 0, size: "A4",
                 margins: { top: 40, bottom: 80, left: 60, right: 60 },
-                bufferPages: true
+                bufferPages: true,
+                autoFirstPage: false // Importante: Desativa a criação automática da 1ª página
             });
 
             const chunks = [];
@@ -104,7 +105,8 @@ async function generateRepairPDF(reparacaoId) {
                 let y = 40;
                 const left = 40, right = 400;
                 const col = { d: left, ref: 290, qtd: 390, preco: 425, dsc: 475, total: 510 };
-                const pageBottom = doc.page.height - doc.page.margins.bottom;
+                // Altura A4 = 841.89. Como autoFirstPage=false, doc.page é null aqui.
+                const pageBottom = 841.89 - 80;
                 const limit = () => pageBottom;
 
                 // Helper de texto original
@@ -188,8 +190,10 @@ async function generateRepairPDF(reparacaoId) {
                 // 2. PRIMEIRA PÁGINA (EXECUÇÃO NORMAL)
                 // ============================================================
 
-                // Em vez de escrever o código aqui, chamamos a função
-                y = desenharCabecalho();
+                if (pages === 'all' || pages === '1') {
+                    doc.addPage();
+                    // Em vez de escrever o código aqui, chamamos a função
+                    y = desenharCabecalho();
 
                 // --- TÍTULO E INFO REPARAÇÃO (Mantém-se igual) ---
 
@@ -323,10 +327,13 @@ async function generateRepairPDF(reparacaoId) {
                 ];
                 condicoes.forEach(cond => { doc.text(cond, left, y); y += 9; });
 
+                } // Fim do IF da Página 1
+
                 // ============================================================
                 // 3. SEGUNDA PÁGINA - FOLHA DE APROVAÇÃO
                 // ============================================================
 
+                if (pages === 'all' || pages === '2') {
                 // 1. Força SEMPRE uma nova página para a folha de aprovação
                 doc.addPage();
 
@@ -438,6 +445,7 @@ async function generateRepairPDF(reparacaoId) {
                 // Linha para assinar
                 doc.moveTo(350, signatureY + 35).lineTo(520, signatureY + 35).lineWidth(1).stroke();
                 doc.font("Helvetica-Oblique").fontSize(8).text("(Assinatura e Carimbo)", 350, signatureY + 40);
+                } // Fim do IF da Página 2
 
                 doc.end();
 
@@ -1806,6 +1814,7 @@ app.put("/reparacoes/:id/pecas", async (req, res) => {
 // ==================== ROTA PARA GERAR PDF ====================
 app.get("/reparacoes/:id/pdf", async (req, res) => {
     const { id } = req.params;
+    const { pages } = req.query; // Recebe o parâmetro pages (1, 2 ou all)
 
     console.log(`📄 Iniciando geração de PDF para reparação ID: ${id}`);
 
@@ -1827,7 +1836,7 @@ app.get("/reparacoes/:id/pdf", async (req, res) => {
 
         const numReparacao = result[0].numreparacao || id;
 
-        const pdfBuffer = await generateRepairPDF(id);
+        const pdfBuffer = await generateRepairPDF(id, pages);
 
         // Configurar headers com nome personalizado
         const filename = `Reparação nº ${numReparacao}.pdf`;

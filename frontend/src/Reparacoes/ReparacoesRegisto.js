@@ -38,6 +38,10 @@ function ReparacoesRegisto() {
     // Novo estado para controlar qual ID estamos a editar (null = modo adicionar)
     const [editingId, setEditingId] = useState(null)
 
+    // Estado para input de texto (substitui prompt)
+    const [showTextoInput, setShowTextoInput] = useState(false)
+    const [textoNota, setTextoNota] = useState("")
+
     const tipoPecaInputRef = useRef(null)
 
     // UI & Controlo
@@ -219,10 +223,21 @@ function ReparacoesRegisto() {
         setNovaPeca(novaPecaInicial);
     }
 
-    const adicionarTexto = () => {
-        const texto = prompt("Texto da nota:")
-        if (texto) {
-            setPecasNecessarias(prev => [...prev, { id: Date.now(), is_text: true, texto, quantidade: 0, preco_unitario: 0 }])
+    const adicionarTexto = (e) => {
+        if (e) e.preventDefault();
+        setShowTextoInput(true)
+        // Forçar foco após renderização
+        setTimeout(() => {
+            const input = document.getElementById('textoNotaInput');
+            if (input) input.focus();
+        }, 100);
+    }
+
+    const confirmarTexto = () => {
+        if (textoNota.trim()) {
+            setPecasNecessarias(prev => [...prev, { id: Date.now(), is_text: true, texto: textoNota, quantidade: 0, preco_unitario: 0 }])
+            setTextoNota("")
+            setShowTextoInput(false)
         }
     }
 
@@ -263,7 +278,6 @@ function ReparacoesRegisto() {
             }
 
             await axios.post(`${API_BASE_URL}/reparacoes`, dados)
-            alert("Reparação registada com sucesso!")
             navigate("/reparacoes")
         } catch (err) {
             console.error(err)
@@ -311,7 +325,7 @@ function ReparacoesRegisto() {
                                 <div className="row g-3">
                                     <div className="col-md-8">
                                         <label className="form-label small fw-bold text-muted text-uppercase">Nome da Máquina <span className="text-danger">*</span></label>
-                                        <input type="text" className="form-control" name="nomemaquina" value={form.nomemaquina} onChange={e => setForm({ ...form, [e.target.name]: e.target.value })} placeholder="Ex: Rebarbadora Dewalt..." />
+                                        <input type="text" className="form-control" name="nomemaquina" value={form.nomemaquina} onChange={e => setForm({ ...form, [e.target.name]: e.target.value })} placeholder="Ex: Rebarbadora Dewalt..." autoFocus />
                                     </div>
                                     <div className="col-md-4">
                                         <label className="form-label small fw-bold text-muted text-uppercase">Nº da Rep <span className="text-danger">*</span></label>
@@ -333,115 +347,118 @@ function ReparacoesRegisto() {
                         </div>
 
                         {/* PEÇAS E SERVIÇOS */}
-                        <div className={`card border-0 shadow-sm rounded-3 ${!orcamentoAceito ? 'opacity-75' : ''}`}>
+                        <div className="card border-0 shadow-sm rounded-3">
                             <div className="card-header bg-white py-3 d-flex justify-content-between align-items-center">
                                 <span className="fw-bold"><i className="bi bi-tools me-2 text-warning"></i>Peças e Materiais</span>
-                                <button className="btn btn-sm btn-outline-secondary" onClick={adicionarTexto}><i className="bi bi-type"></i> Nota Texto</button>
+                                <button type="button" className="btn btn-sm btn-outline-secondary" onClick={adicionarTexto}><i className="bi bi-type"></i> Nota Texto</button>
                             </div>
 
                             <div className="card-body p-0">
-                                {orcamentoAceito ? (
-                                    <>
-                                        {/* FORMULÁRIO INLINE (ADICIONAR/EDITAR) */}
-                                        <div className={`p-3 border-bottom ${editingId ? 'bg-warning bg-opacity-10' : 'bg-light'}`}>
-                                            {editingId && <div className="text-warning fw-bold small mb-2"><i className="bi bi-pencil-fill me-1"></i>A Editar Peça</div>}
-
-                                            <div className="row g-2 align-items-end">
-                                                <div className="col-md-4">
-                                                    <label className="small text-muted">Peça</label>
-                                                    <input list="pecas-list" className="form-control form-control-sm" ref={tipoPecaInputRef} name="tipopeca" value={novaPeca.tipopeca} onChange={e => setNovaPeca({ ...novaPeca, tipopeca: e.target.value })} placeholder="Nome da peça..." />
-                                                    <datalist id="pecas-list">{pecasSimilares.map((p, i) => <option key={i} value={p.tipopeca} />)}</datalist>
-                                                </div>
-                                                <div className="col-md-3">
-                                                    <label className="small text-muted">Ref.</label>
-                                                    <input type="text" className="form-control form-control-sm" name="marca" value={novaPeca.marca} onChange={e => setNovaPeca({ ...novaPeca, marca: e.target.value })} />
-                                                </div>
-                                                <div className="col-md-1">
-                                                    <label className="small text-muted">Qtd</label>
-                                                    <input type="number" className="form-control form-control-sm" value={novaPeca.quantidade} onChange={e => setNovaPeca({ ...novaPeca, quantidade: e.target.value })} min="1" />
-                                                </div>
-                                                <div className="col-md-2">
-                                                    <label className="small text-muted">Preço (€)</label>
-                                                    <input type="number" className="form-control form-control-sm" value={novaPeca.preco_unitario} onChange={e => setNovaPeca({ ...novaPeca, preco_unitario: e.target.value })} step="0.01" />
-                                                </div>
-
-                                                <div className="col-md-2 d-flex gap-1">
-                                                    {/* Botão dinâmico (Adicionar ou Atualizar) */}
-                                                    {editingId ? (
-                                                        <>
-                                                            <button className="btn btn-sm btn-success w-100" onClick={gerirPeca} title="Guardar Alterações">
-                                                                <i className="bi bi-check-lg"></i>
-                                                            </button>
-                                                            <button className="btn btn-sm btn-outline-danger w-100" onClick={cancelarEdicao} title="Cancelar Edição">
-                                                                <i className="bi bi-x-lg"></i>
-                                                            </button>
-                                                        </>
-                                                    ) : (
-                                                        <button className="btn btn-sm btn-primary w-100" onClick={gerirPeca} disabled={!novaPeca.tipopeca}>
-                                                            <i className="bi bi-plus-lg"></i> Add
-                                                        </button>
-                                                    )}
-                                                </div>
-                                            </div>
+                                {/* INPUT DE TEXTO (Substitui prompt) */}
+                                {showTextoInput && (
+                                    <div className="p-3 border-bottom bg-light">
+                                        <label className="small text-muted mb-1">Texto da Nota</label>
+                                        <div className="input-group">
+                                            <input id="textoNotaInput" type="text" className="form-control" placeholder="Escreva a nota aqui..." value={textoNota} onChange={e => setTextoNota(e.target.value)} autoFocus onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); confirmarTexto(); } }} />
+                                            <button className="btn btn-success" onClick={confirmarTexto}><i className="bi bi-check-lg"></i></button>
+                                            <button className="btn btn-outline-danger" onClick={() => setShowTextoInput(false)}><i className="bi bi-x-lg"></i></button>
                                         </div>
-
-                                        {/* TABELA DE PEÇAS */}
-                                        <div className="table-responsive">
-                                            <table className="table table-hover mb-0 align-middle" style={{ fontSize: '0.9rem' }}>
-                                                <thead className="bg-light text-secondary">
-                                                    <tr>
-                                                        <th className="ps-4">Descrição</th>
-                                                        <th>Ref.</th>
-                                                        <th className="text-center">Qtd</th>
-                                                        <th className="text-end">Unit.</th>
-                                                        <th className="text-end pe-4">Total</th>
-                                                        <th className="text-end">Ações</th>
-                                                    </tr>
-                                                </thead>
-                                                <tbody>
-                                                    {pecasNecessarias.length === 0 && <tr><td colSpan="6" className="text-center py-4 text-muted small">Adicione peças acima para ver a lista.</td></tr>}
-                                                    {pecasNecessarias.map((p, idx) => (
-                                                        <tr key={p.id || idx} className={`${p.is_text ? "table-light" : ""} ${editingId === p.id ? "table-warning" : ""}`}>
-                                                            {p.is_text ? (
-                                                                <td colSpan="5" className="ps-4 fst-italic text-muted"><i className="bi bi-justify-left me-2"></i>{p.texto}</td>
-                                                            ) : (
-                                                                <>
-                                                                    <td className="ps-4 fw-bold">{p.tipopeca}</td>
-                                                                    <td>{p.marca}</td>
-                                                                    <td className="text-center"><span className="badge bg-light text-dark border">{p.quantidade}</span></td>
-                                                                    <td className="text-end text-muted small">
-                                                                        {p.desconto_percentual > 0 && <span className="text-warning me-1">-{p.desconto_percentual}%</span>}
-                                                                        {formatCurrency(p.preco_unitario)}
-                                                                    </td>
-                                                                    <td className="text-end fw-bold">
-                                                                        {formatCurrency((p.preco_unitario * (1 - (p.desconto_percentual / 100))) * p.quantidade)}
-                                                                    </td>
-                                                                </>
-                                                            )}
-                                                            <td className="text-end pe-4">
-                                                                <div className="d-flex justify-content-end gap-2">
-                                                                    {!p.is_text && (
-                                                                        <button className="btn btn-link text-primary p-0" onClick={() => iniciarEdicao(p)} title="Editar">
-                                                                            <i className="bi bi-pencil-square"></i>
-                                                                        </button>
-                                                                    )}
-                                                                    <button className="btn btn-link text-danger p-0" onClick={() => removerPeca(p.id)} title="Remover">
-                                                                        <i className="bi bi-trash"></i>
-                                                                    </button>
-                                                                </div>
-                                                            </td>
-                                                        </tr>
-                                                    ))}
-                                                </tbody>
-                                            </table>
-                                        </div>
-                                    </>
-                                ) : (
-                                    <div className="p-5 text-center text-muted bg-light">
-                                        <i className="bi bi-lock fs-1 mb-2 d-block opacity-25"></i>
-                                        Defina o estado do orçamento como "Aceite" ou "Em Processo" para adicionar peças.
                                     </div>
                                 )}
+
+                                {/* FORMULÁRIO INLINE (ADICIONAR/EDITAR) */}
+                                <div className={`p-3 border-bottom ${editingId ? 'bg-warning bg-opacity-10' : 'bg-light'}`}>
+                                    {editingId && <div className="text-warning fw-bold small mb-2"><i className="bi bi-pencil-fill me-1"></i>A Editar Peça</div>}
+
+                                    <div className="row g-2 align-items-end">
+                                        <div className="col-md-4">
+                                            <label className="small text-muted">Peça</label>
+                                            <input list="pecas-list" className="form-control form-control-sm" ref={tipoPecaInputRef} name="tipopeca" value={novaPeca.tipopeca} onChange={e => setNovaPeca({ ...novaPeca, tipopeca: e.target.value })} placeholder="Nome da peça..." />
+                                            <datalist id="pecas-list">{pecasSimilares.map((p, i) => <option key={i} value={p.tipopeca} />)}</datalist>
+                                        </div>
+                                        <div className="col-md-3">
+                                            <label className="small text-muted">Ref.</label>
+                                            <input type="text" className="form-control form-control-sm" name="marca" value={novaPeca.marca} onChange={e => setNovaPeca({ ...novaPeca, marca: e.target.value })} />
+                                        </div>
+                                        <div className="col-md-1">
+                                            <label className="small text-muted">Qtd</label>
+                                            <input type="number" className="form-control form-control-sm" value={novaPeca.quantidade} onChange={e => setNovaPeca({ ...novaPeca, quantidade: e.target.value })} min="1" />
+                                        </div>
+                                        <div className="col-md-2">
+                                            <label className="small text-muted">Preço (€)</label>
+                                            <input type="number" className="form-control form-control-sm" value={novaPeca.preco_unitario} onChange={e => setNovaPeca({ ...novaPeca, preco_unitario: e.target.value })} step="0.01" />
+                                        </div>
+
+                                        <div className="col-md-2 d-flex gap-1">
+                                            {/* Botão dinâmico (Adicionar ou Atualizar) */}
+                                            {editingId ? (
+                                                <>
+                                                    <button className="btn btn-sm btn-success w-100" onClick={gerirPeca} title="Guardar Alterações">
+                                                        <i className="bi bi-check-lg"></i>
+                                                    </button>
+                                                    <button className="btn btn-sm btn-outline-danger w-100" onClick={cancelarEdicao} title="Cancelar Edição">
+                                                        <i className="bi bi-x-lg"></i>
+                                                    </button>
+                                                </>
+                                            ) : (
+                                                <button className="btn btn-sm btn-primary w-100" onClick={gerirPeca} disabled={!novaPeca.tipopeca}>
+                                                    <i className="bi bi-plus-lg"></i> Add
+                                                </button>
+                                            )}
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* TABELA DE PEÇAS */}
+                                <div className="table-responsive">
+                                    <table className="table table-hover mb-0 align-middle" style={{ fontSize: '0.9rem' }}>
+                                        <thead className="bg-light text-secondary">
+                                            <tr>
+                                                <th className="ps-4">Descrição</th>
+                                                <th>Ref.</th>
+                                                <th className="text-center">Qtd</th>
+                                                <th className="text-end">Unit.</th>
+                                                <th className="text-end pe-4">Total</th>
+                                                <th className="text-end">Ações</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {pecasNecessarias.length === 0 && <tr><td colSpan="6" className="text-center py-4 text-muted small">Adicione peças acima para ver a lista.</td></tr>}
+                                            {pecasNecessarias.map((p, idx) => (
+                                                <tr key={p.id || idx} className={`${p.is_text ? "table-light" : ""} ${editingId === p.id ? "table-warning" : ""}`}>
+                                                    {p.is_text ? (
+                                                        <td colSpan="5" className="ps-4 fst-italic text-muted"><i className="bi bi-justify-left me-2"></i>{p.texto}</td>
+                                                    ) : (
+                                                        <>
+                                                            <td className="ps-4 fw-bold">{p.tipopeca}</td>
+                                                            <td>{p.marca}</td>
+                                                            <td className="text-center"><span className="badge bg-light text-dark border">{p.quantidade}</span></td>
+                                                            <td className="text-end text-muted small">
+                                                                {p.desconto_percentual > 0 && <span className="text-warning me-1">-{p.desconto_percentual}%</span>}
+                                                                {formatCurrency(p.preco_unitario)}
+                                                            </td>
+                                                            <td className="text-end fw-bold">
+                                                                {formatCurrency((p.preco_unitario * (1 - (p.desconto_percentual / 100))) * p.quantidade)}
+                                                            </td>
+                                                        </>
+                                                    )}
+                                                    <td className="text-end pe-4">
+                                                        <div className="d-flex justify-content-end gap-2">
+                                                            {!p.is_text && (
+                                                                <button className="btn btn-link text-primary p-0" onClick={() => iniciarEdicao(p)} title="Editar">
+                                                                    <i className="bi bi-pencil-square"></i>
+                                                                </button>
+                                                            )}
+                                                            <button className="btn btn-link text-danger p-0" onClick={() => removerPeca(p.id)} title="Remover">
+                                                                <i className="bi bi-trash"></i>
+                                                            </button>
+                                                        </div>
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
                             </div>
                         </div>
                     </div>

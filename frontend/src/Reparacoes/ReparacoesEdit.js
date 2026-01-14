@@ -43,6 +43,10 @@ function ReparacoesEdit() {
     const [editingId, setEditingId] = useState(null)
     const tipoPecaInputRef = useRef(null)
 
+    // Estado para input de texto (substitui prompt)
+    const [showTextoInput, setShowTextoInput] = useState(false)
+    const [textoNota, setTextoNota] = useState("")
+
     // UI States
     const [loading, setLoading] = useState(true)
     const [saving, setSaving] = useState(false)
@@ -225,12 +229,22 @@ function ReparacoesEdit() {
         if (editingId === id) cancelarEdicao()
     }
 
-    const adicionarLinhaTexto = () => {
-        const texto = prompt("Digite o texto da nota:")
-        if (!texto) return
-        setPecasNecessarias(prev => [...prev, {
-            id: Date.now(), is_text: 1, texto, marca: "texto", quantidade: 0, preco_total: 0
-        }])
+    const adicionarLinhaTexto = (e) => {
+        if(e) e.preventDefault();
+        setShowTextoInput(true)
+        // Forçar foco após renderização
+        setTimeout(() => {
+            const input = document.getElementById('textoNotaInputEdit');
+            if(input) input.focus();
+        }, 100);
+    }
+
+    const confirmarTexto = () => {
+        if (textoNota.trim()) {
+            setPecasNecessarias(prev => [...prev, { id: Date.now(), is_text: true, texto: textoNota, marca: "Nota", quantidade: 0, preco_total: 0 }])
+            setTextoNota("")
+            setShowTextoInput(false)
+        }
     }
 
     // --- HANDLERS GERAIS ---
@@ -330,56 +344,63 @@ function ReparacoesEdit() {
                         </div>
 
                         {/* PEÇAS E SERVIÇOS */}
-                        <div className={`card border-0 shadow-sm rounded-3 ${!orcamentoAceito ? 'opacity-75' : ''}`}>
+                        <div className="card border-0 shadow-sm rounded-3">
                             <div className="card-header bg-white py-3 d-flex justify-content-between align-items-center">
                                 <span className="fw-bold"><i className="bi bi-tools me-2 text-warning"></i>Peças e Materiais</span>
-                                <button className="btn btn-sm btn-outline-secondary" onClick={adicionarLinhaTexto}><i className="bi bi-type"></i> Texto</button>
+                                <button type="button" className="btn btn-sm btn-outline-secondary" onClick={adicionarLinhaTexto}><i className="bi bi-type"></i> Texto</button>
                             </div>
 
                             <div className="card-body p-0">
-                                {orcamentoAceito ? (
-                                    <div className={`p-3 border-bottom ${editingId ? 'bg-warning bg-opacity-10' : 'bg-light'}`}>
-                                        {/* INDICADOR DE EDIÇÃO */}
-                                        {editingId && <div className="text-warning fw-bold small mb-2"><i className="bi bi-pencil-fill me-1"></i>A Editar Peça</div>}
-
-                                        <div className="row g-2 align-items-end">
-                                            <div className="col-md-4">
-                                                <label className="small text-muted">Peça</label>
-                                                <input list="pecas-list" className="form-control form-control-sm" ref={tipoPecaInputRef} name="tipopeca" value={novaPeca.tipopeca} onChange={handleNovaPecaChange} placeholder="Nome da peça" />
-                                                <datalist id="pecas-list">{pecasSimilares.map((p, i) => <option key={i} value={p.tipopeca} />)}</datalist>
-                                            </div>
-                                            <div className="col-md-2">
-                                                <label className="small text-muted">Ref.</label>
-                                                <input type="text" className="form-control form-control-sm" name="marca" value={novaPeca.marca} onChange={handleNovaPecaChange} />
-                                            </div>
-                                            <div className="col-md-1">
-                                                <label className="small text-muted">Qtd</label>
-                                                <input type="number" className="form-control form-control-sm" name="quantidade" value={novaPeca.quantidade} onChange={handleNovaPecaChange} min="1" />
-                                            </div>
-                                            <div className="col-md-2">
-                                                <label className="small text-muted">Preço (€)</label>
-                                                <input type="number" className="form-control form-control-sm" name="preco_unitario" value={novaPeca.preco_unitario} onChange={handleNovaPecaChange} step="0.01" />
-                                            </div>
-                                            <div className="col-md-1">
-                                                <label className="small text-muted">Desc(%)</label>
-                                                <input type="number" className="form-control form-control-sm" name="desconto_percentual" value={novaPeca.desconto_percentual} onChange={handleNovaPecaChange} min="0" max="100" />
-                                            </div>
-                                            <div className="col-md-2 d-flex gap-1">
-                                                {/* BOTÕES DINÂMICOS (ADICIONAR OU ATUALIZAR) */}
-                                                {editingId ? (
-                                                    <>
-                                                        <button className="btn btn-sm btn-success w-100" onClick={gerirPeca} title="Atualizar"><i className="bi bi-check-lg"></i></button>
-                                                        <button className="btn btn-sm btn-outline-danger w-100" onClick={cancelarEdicao} title="Cancelar"><i className="bi bi-x-lg"></i></button>
-                                                    </>
-                                                ) : (
-                                                    <button className="btn btn-sm btn-primary w-100" onClick={gerirPeca} disabled={!novaPeca.tipopeca}><i className="bi bi-plus-lg"></i> Add</button>
-                                                )}
-                                            </div>
+                                {/* INPUT DE TEXTO (Substitui prompt) */}
+                                {showTextoInput && (
+                                    <div className="p-3 border-bottom bg-light">
+                                        <label className="small text-muted mb-1">Texto da Nota</label>
+                                        <div className="input-group">
+                                            <input id="textoNotaInputEdit" type="text" className="form-control" placeholder="Escreva a nota aqui..." value={textoNota} onChange={e => setTextoNota(e.target.value)} autoFocus onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); confirmarTexto(); } }} />
+                                            <button className="btn btn-success" onClick={confirmarTexto}><i className="bi bi-check-lg"></i></button>
+                                            <button className="btn btn-outline-danger" onClick={() => setShowTextoInput(false)}><i className="bi bi-x-lg"></i></button>
                                         </div>
                                     </div>
-                                ) : (
-                                    <div className="p-4 text-center text-muted fst-italic bg-light">O orçamento precisa ser aceite para adicionar peças.</div>
                                 )}
+                                <div className={`p-3 border-bottom ${editingId ? 'bg-warning bg-opacity-10' : 'bg-light'}`}>
+                                    {/* INDICADOR DE EDIÇÃO */}
+                                    {editingId && <div className="text-warning fw-bold small mb-2"><i className="bi bi-pencil-fill me-1"></i>A Editar Peça</div>}
+
+                                    <div className="row g-2 align-items-end">
+                                        <div className="col-md-4">
+                                            <label className="small text-muted">Peça</label>
+                                            <input list="pecas-list" className="form-control form-control-sm" ref={tipoPecaInputRef} name="tipopeca" value={novaPeca.tipopeca} onChange={handleNovaPecaChange} placeholder="Nome da peça" />
+                                            <datalist id="pecas-list">{pecasSimilares.map((p, i) => <option key={i} value={p.tipopeca} />)}</datalist>
+                                        </div>
+                                        <div className="col-md-2">
+                                            <label className="small text-muted">Ref.</label>
+                                            <input type="text" className="form-control form-control-sm" name="marca" value={novaPeca.marca} onChange={handleNovaPecaChange} />
+                                        </div>
+                                        <div className="col-md-1">
+                                            <label className="small text-muted">Qtd</label>
+                                            <input type="number" className="form-control form-control-sm" name="quantidade" value={novaPeca.quantidade} onChange={handleNovaPecaChange} min="1" />
+                                        </div>
+                                        <div className="col-md-2">
+                                            <label className="small text-muted">Preço (€)</label>
+                                            <input type="number" className="form-control form-control-sm" name="preco_unitario" value={novaPeca.preco_unitario} onChange={handleNovaPecaChange} step="0.01" />
+                                        </div>
+                                        <div className="col-md-1">
+                                            <label className="small text-muted">Desc(%)</label>
+                                            <input type="number" className="form-control form-control-sm" name="desconto_percentual" value={novaPeca.desconto_percentual} onChange={handleNovaPecaChange} min="0" max="100" />
+                                        </div>
+                                        <div className="col-md-2 d-flex gap-1">
+                                            {/* BOTÕES DINÂMICOS (ADICIONAR OU ATUALIZAR) */}
+                                            {editingId ? (
+                                                <>
+                                                    <button className="btn btn-sm btn-success w-100" onClick={gerirPeca} title="Atualizar"><i className="bi bi-check-lg"></i></button>
+                                                    <button className="btn btn-sm btn-outline-danger w-100" onClick={cancelarEdicao} title="Cancelar"><i className="bi bi-x-lg"></i></button>
+                                                </>
+                                            ) : (
+                                                <button className="btn btn-sm btn-primary w-100" onClick={gerirPeca} disabled={!novaPeca.tipopeca}><i className="bi bi-plus-lg"></i> Add</button>
+                                            )}
+                                        </div>
+                                    </div>
+                                </div>
 
                                 <div className="table-responsive">
                                     <table className="table table-hover mb-0 align-middle" style={{ fontSize: '0.9rem' }}>
