@@ -138,21 +138,18 @@ function ReparacoesEdit() {
             totalDescontosPecas += ((pu - precoComDesc) * qtd)
         })
 
-        const valorDescMO = tipoDesconto === "percentual"
-            ? valorMaoObra * (desconto / 100)
-            : Number(desconto) || 0
 
-        const totalGeral = Math.max(0, totalPecas + (valorMaoObra - valorDescMO))
-        const iva = totalGeral * 0.23
+
+        const totalGeral = Math.max(0, totalPecas + valorMaoObra)
+        const iva = 1.23
 
         return {
             totalPecas,
             totalDescontosPecas,
-            valorDescMO,
-            subtotalMO: valorMaoObra - valorDescMO,
+            subtotalMO: valorMaoObra,
             totalGeral,
             iva,
-            totalComIva: totalGeral + iva
+            totalComIva: totalGeral * iva
         }
     }, [pecasNecessarias, valorMaoObra, desconto, tipoDesconto])
 
@@ -230,12 +227,12 @@ function ReparacoesEdit() {
     }
 
     const adicionarLinhaTexto = (e) => {
-        if(e) e.preventDefault();
+        if (e) e.preventDefault();
         setShowTextoInput(true)
         // Forçar foco após renderização
         setTimeout(() => {
             const input = document.getElementById('textoNotaInputEdit');
-            if(input) input.focus();
+            if (input) input.focus();
         }, 100);
     }
 
@@ -506,21 +503,9 @@ function ReparacoesEdit() {
                                     <label className="small text-white text-opacity-75">Mão de Obra (€)</label>
                                     <input type="number" className="form-control form-control-sm bg-white bg-opacity-25 border-0 text-white" value={valorMaoObra} onChange={e => setValorMaoObra(parseFloat(e.target.value) || 0)} />
                                 </div>
-                                <div className="row g-2 mb-3">
-                                    <div className="col-8">
-                                        <label className="small text-white text-opacity-75">Desconto MO</label>
-                                        <input type="number" className="form-control form-control-sm bg-white bg-opacity-10 border-0 text-white" value={desconto} onChange={e => setDesconto(parseFloat(e.target.value) || 0)} />
-                                    </div>
-                                    <div className="col-4">
-                                        <label className="small text-white text-opacity-75">Tipo</label>
-                                        <select className="form-select form-select-sm bg-white bg-opacity-10 border-0 text-white" value={tipoDesconto} onChange={e => setTipoDesconto(e.target.value)}>
-                                            <option value="percentual" className="text-dark">%</option>
-                                        </select>
-                                    </div>
-                                </div>
                                 <div className="mt-4 pt-3 border-top border-white border-opacity-25 d-flex justify-content-between align-items-center">
-                                    <span>Subtotal Peças</span>
-                                    <span className="fs-5 fw-bold">{formatCurrency(financeiros.totalPecas)}</span>
+                                    <span>Subtotal </span>
+                                    <span className="fs-5 fw-bold">{formatCurrency(financeiros.totalGeral)}</span>
                                 </div>
                                 <div className="d-flex justify-content-between align-items-center">
                                     <span>Total Final (c/ IVA)</span>
