@@ -162,7 +162,10 @@ function ReparacoesEdit() {
 
     // Função Unificada para Adicionar ou Atualizar Peça
     const gerirPeca = () => {
-        if (!novaPeca.tipopeca || !novaPeca.marca) return alert("Preencha tipo e marca")
+        if (!novaPeca.tipopeca || !novaPeca.marca) {
+            setErro("Preencha tipo e marca da peça")
+            return
+        }
 
         const pu = parseFloat(String(novaPeca.preco_unitario).replace(',', '.')) || 0
         const descPct = parseFloat(novaPeca.desconto_percentual) || 0
@@ -270,7 +273,6 @@ function ReparacoesEdit() {
             }))
 
             await axios.put(`${API_BASE_URL}/reparacoes/${id}/pecas`, { pecasNecessarias: pecasPayload })
-            alert("Guardado com sucesso!")
             navigate("/reparacoes")
         } catch (err) {
             setErro("Erro ao salvar alterações")
@@ -316,7 +318,7 @@ function ReparacoesEdit() {
                                 <div className="row g-3">
                                     <div className="col-md-8">
                                         <label className="form-label small fw-bold text-muted text-uppercase">Nome da Máquina</label>
-                                        <input type="text" className="form-control" name="nomemaquina" value={form.nomemaquina} onChange={handleChange} />
+                                        <input type="text" className="form-control" name="nomemaquina" value={form.nomemaquina} onChange={handleChange} autoFocus />
                                     </div>
                                     <div className="col-md-4">
                                         <label className="form-label small fw-bold text-muted text-uppercase">Nº Série</label>

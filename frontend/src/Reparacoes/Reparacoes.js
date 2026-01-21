@@ -4,6 +4,8 @@ import { useState, useEffect, useMemo, useCallback } from "react"
 import axios from "axios"
 import DataTable from "react-data-table-component"
 import { useNavigate } from "react-router-dom"
+import jsPDF from "jspdf"
+import autoTable from "jspdf-autotable"
 import "bootstrap/dist/css/bootstrap.min.css"
 import "bootstrap-icons/font/bootstrap-icons.css"
 
@@ -53,12 +55,14 @@ function removerAcentos(str) {
 function ReparacoesView() {
     const [reparacoes, setReparacoes] = useState([])
     const [alarmes, setAlarmes] = useState([])
+    const [centros, setCentros] = useState([])
     const [loading, setLoading] = useState(true)
     const navigate = useNavigate()
 
     // -- Estados persistidos para filtros e paginação --
     const [searchTerm, setSearchTerm] = useState(() => sessionStorage.getItem("reparacoesSearchTerm") || "")
     const [filterStatus, setFilterStatus] = useState(() => sessionStorage.getItem("reparacoesFilterStatus") || "all")
+    const [selectedCentro, setSelectedCentro] = useState(() => sessionStorage.getItem("reparacoesSelectedCentro") || "all")
     const [currentPage, setCurrentPage] = useState(() => Number(sessionStorage.getItem("reparacoesCurrentPage")) || 1)
     const [perPage, setPerPage] = useState(() => Number(sessionStorage.getItem("reparacoesPerPage")) || 10)
 
@@ -66,7 +70,8 @@ function ReparacoesView() {
     useEffect(() => {
         sessionStorage.setItem("reparacoesSearchTerm", searchTerm)
         sessionStorage.setItem("reparacoesFilterStatus", filterStatus)
-    }, [searchTerm, filterStatus])
+        sessionStorage.setItem("reparacoesSelectedCentro", selectedCentro)
+    }, [searchTerm, filterStatus, selectedCentro])
 
     useEffect(() => {
         sessionStorage.setItem("reparacoesCurrentPage", currentPage)
@@ -80,12 +85,14 @@ function ReparacoesView() {
         const loadData = async () => {
             setLoading(true)
             try {
-                const [repResponse, alarmResponse] = await Promise.all([
+                const [repResponse, alarmResponse, centrosResponse] = await Promise.all([
                     axios.get(`${API_BASE_URL}/reparacoes`),
-                    axios.get(`${API_BASE_URL}/alarmes/resumo`)
+                    axios.get(`${API_BASE_URL}/alarmes/resumo`),
+                    axios.get(`${API_BASE_URL}/centros`)
                 ])
                 setReparacoes(Array.isArray(repResponse.data) ? repResponse.data : [])
                 setAlarmes(alarmResponse.data.alarmes || [])
+                setCentros(Array.isArray(centrosResponse.data) ? centrosResponse.data : [])
             } catch (error) {
                 console.error("Erro ao carregar dados:", error)
             } finally {
@@ -123,6 +130,7 @@ function ReparacoesView() {
         const termoLimpo = removerAcentos(searchTerm)
         return reparacoes.filter((reparacao) => {
             if (filterStatus !== "all" && getStatus(reparacao) !== filterStatus) return false
+            if (selectedCentro !== "all" && reparacao.nomecentro !== selectedCentro) return false
             if (!termoLimpo) return true
             return (
                 removerAcentos(reparacao.nomemaquina).includes(termoLimpo) ||
@@ -135,7 +143,7 @@ function ReparacoesView() {
             const numB = b.numreparacao ? String(b.numreparacao) : ""
             return numB.localeCompare(numA, undefined, { numeric: true })
         })
-    }, [reparacoes, searchTerm, filterStatus, getStatus])
+    }, [reparacoes, searchTerm, filterStatus, selectedCentro, getStatus])
 
     const stats = useMemo(() => {
         const initialStats = { total: 0, andamento: 0, pronta: 0, entregue: 0 }
@@ -145,7 +153,7 @@ function ReparacoesView() {
             if (acc[status] !== undefined) acc[status]++
             return acc
         }, initialStats)
-    }, [reparacoes, getStatus])
+    }, [reparacoes, getStatus, selectedCentro])
 
     const statCardsConfig = [
         { title: stats.andamento, label: "Em Andamento", icon: "bi-hourglass-split", color: "text-warning", bg: "bg-warning" },
@@ -236,6 +244,65 @@ function ReparacoesView() {
         navigate(`/reparacoes/view/${row.id}`)
     }
 
+    // NOVO: Função para exportar PDF
+    const handleExportPDF = () => {
+        const doc = new jsPDF()
+
+        const centerName = selectedCentro === 'all' ? 'Todos os Centros' : selectedCentro
+
+        // Título e Metadados
+        doc.setFontSize(16)
+        doc.text(`Listagem de Reparações - ${centerName}`, 14, 15)
+
+        doc.setFontSize(10)
+        doc.setTextColor(100)
+        doc.text(`Gerado em: ${new Date().toLocaleDateString()} às ${new Date().toLocaleTimeString()}`, 14, 22)
+
+        if (filterStatus !== 'all') {
+            const labels = {
+                entregue: "Entregue", pronta: "Pronta", andamento: "Em Andamento",
+                pendente: "Pendente", sem_reparacao: "Sem Reparação"
+            }
+            doc.text(`Filtro de Status: ${labels[filterStatus] || filterStatus}`, 14, 27)
+        }
+
+        // Configuração da Tabela
+        const tableColumn = ["Nº Rep", "Cliente", "Máquina", "Centro", "Entrada", "Conclusão", "Status"]
+        const tableRows = []
+
+        const statusLabels = {
+            entregue: "Entregue", pronta: "Pronta", andamento: "Em Andamento",
+            pendente: "Pendente", sem_reparacao: "Sem Reparação"
+        }
+
+        // Usar filteredReparacoes garante que o PDF reflete exatamente o que está na tela (filtros de centro, status e busca)
+        filteredReparacoes.forEach(reparacao => {
+            const statusId = getStatus(reparacao)
+            const statusLabel = statusLabels[statusId] || "Pendente"
+            const repairData = [
+                reparacao.numreparacao || "",
+                reparacao.cliente_nome || "",
+                reparacao.nomemaquina || "",
+                reparacao.nomecentro || "",
+                reparacao.dataentrega ? new Date(reparacao.dataentrega).toLocaleDateString('pt-PT') : "-",
+                reparacao.dataconclusao ? new Date(reparacao.dataconclusao).toLocaleDateString('pt-PT') : "-",
+                statusLabel
+            ]
+            tableRows.push(repairData)
+        })
+
+        autoTable(doc, {
+            head: [tableColumn],
+            body: tableRows,
+            startY: filterStatus !== 'all' ? 32 : 28,
+            styles: { fontSize: 8 },
+            headStyles: { fillColor: [13, 110, 253] }, // Cor primária do Bootstrap
+            alternateRowStyles: { fillColor: [245, 245, 245] }
+        })
+
+        doc.save(`reparacoes_${centerName.replace(/ /g, "_").toLowerCase()}.pdf`)
+    }
+
     if (loading) {
         return (
             <div className="d-flex justify-content-center align-items-center vh-100 bg-light">
@@ -255,10 +322,17 @@ function ReparacoesView() {
                     <h3 className="fw-bold text-dark mb-1">Gestão de Reparações</h3>
                     <p className="text-muted mb-0">Gerencie todas as manutenções e estados em tempo real.</p>
                 </div>
-                <button className="btn btn-primary btn-lg shadow-sm d-flex align-items-center gap-2" onClick={() => navigate("/reparacoes/registo")}>
-                    <i className="bi bi-plus-lg"></i>
-                    <span>Nova Reparação</span>
-                </button>
+                {/* NOVO: Botões agrupados */}
+                <div className="d-flex gap-2">
+                    <button className="btn btn-outline-danger btn-lg shadow-sm d-flex align-items-center gap-2" onClick={handleExportPDF}>
+                        <i className="bi bi-file-earmark-pdf"></i>
+                        <span>PDF</span>
+                    </button>
+                    <button className="btn btn-primary btn-lg shadow-sm d-flex align-items-center gap-2" onClick={() => navigate("/reparacoes/registo")}>
+                        <i className="bi bi-plus-lg"></i>
+                        <span>Nova Reparação</span>
+                    </button>
+                </div>
             </div>
 
             {/* Cards de Estatísticas */}
@@ -298,6 +372,22 @@ function ReparacoesView() {
                                 />
                             </div>
                         </div>
+
+                        {/* NOVO: Dropdown de Centros */}
+                        <div className="col-md-3">
+                            <select
+                                className="form-select form-select-lg border-0 bg-light"
+                                value={selectedCentro}
+                                onChange={(e) => setSelectedCentro(e.target.value)}
+                                style={{ cursor: 'pointer' }}
+                            >
+                                <option value="all">Todos os Centros</option>
+                                {centros.map(c => (
+                                    <option key={c.id} value={c.nome}>{c.nome}</option>
+                                ))}
+                            </select>
+                        </div>
+
                         <div className="col-md-3 ms-auto">
                             <select
                                 className="form-select form-select-lg border-0 bg-light"
