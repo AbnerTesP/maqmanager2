@@ -6,6 +6,7 @@ const PDFDocument = require("pdfkit")
 const fs = require("fs")
 const path = require("path")
 const { styleText } = require("util")
+const fsPromises = require("fs").promises
 
 const app = express()
 
@@ -13,9 +14,14 @@ const app = express()
 app.use(cors())
 app.use(express.json())
 
+// CONFIGURAÇÃO DE IPs (Cabo vs WiFi)
+const DB_HOSTS = [
+    "192.168.1.81", // Cabo (Prioridade)
+    "192.168.1.2"   // WiFi / Emergência
+];
+
 // POOL DE CONEXÕES
 const dbConfig = {
-    host: process.env.DB_HOST || "192.168.1.81",
     user: process.env.DB_USER || "root",
     password: process.env.DB_PASSWORD || "",
     database: process.env.DB_NAME || "maqmanager",
@@ -23,8 +29,9 @@ const dbConfig = {
     waitForConnections: true,
     connectionLimit: 10,
     queueLimit: 0,
-    acquireTimeout: 60000,
-    timeout: 60000,
+    acquireTimeout: 5000, // Reduzido para failover rápido
+    connectTimeout: 5000,
+    timeout: 5000,
     reconnect: true,
     idleTimeout: 300000,
     maxIdle: 10,
@@ -32,22 +39,80 @@ const dbConfig = {
     keepAliveInitialDelay: 0,
 }
 
-const pool = mysql.createPool(dbConfig)
+let activePool = null;
+
+// Função para encontrar o IP ativo
+async function getActivePool() {
+    if (activePool) return activePool;
+
+    for (const host of DB_HOSTS) {
+        console.log(`🔌 Tentando conectar a ${host}...`);
+        const tempPool = mysql.createPool({ ...dbConfig, host });
+        try {
+            const conn = await tempPool.getConnection();
+            conn.release();
+            console.log(`✅ Conectado com sucesso a ${host}`);
+            activePool = tempPool;
+            return activePool;
+        } catch (e) {
+            console.warn(`⚠️ Falha ao conectar a ${host}: ${e.message}`);
+            await tempPool.end().catch(() => {});
+        }
+    }
+
+    console.error("❌ Todas as conexões falharam. Ativando modo offline.");
+    // Cria pool com o primeiro host para permitir fallback para cache
+    activePool = mysql.createPool({ ...dbConfig, host: DB_HOSTS[0] });
+    return activePool;
+}
+
+// Wrapper do Pool para gerenciar conexão dinâmica
+const pool = {
+    execute: async (...args) => (await getActivePool()).execute(...args),
+    query: async (...args) => (await getActivePool()).query(...args),
+    getConnection: async () => (await getActivePool()).getConnection(),
+    end: async () => activePool && activePool.end()
+};
 
 // --- VERIFICAÇÃO DE CONEXÃO AO ARRANQUE ---
 pool.getConnection()
-    .then(connection => {
-        console.log(`✅ Conectado com sucesso ao banco de dados em ${dbConfig.host}`);
-        connection.release();
-    })
+    .then(connection => { connection.release(); })
     .catch(err => {
         console.error("❌ Falha fatal na conexão ao banco de dados:", err);
         try {
             const { dialog } = require('electron');
             dialog.showErrorBox('Erro de Conexão ao Banco de Dados',
-                `Não foi possível conectar ao MySQL em ${dbConfig.host}.\n\nErro: ${err.message}\n\nVerifique se o IP está correto e se o servidor MySQL está rodando.`);
+                `Não foi possível conectar ao MySQL (Tentado: ${DB_HOSTS.join(', ')}).\n\nErro: ${err.message}\n\nO sistema tentará funcionar em modo Offline.`);
         } catch (e) { /* Ignora se não estiver no ambiente Electron */ }
     });
+
+// ==================== SISTEMA DE CACHE OFFLINE ====================
+// ALTERADO: Usar pasta do sistema (AppData) para evitar erros de permissão em produção
+const getCacheDir = () => {
+    const baseDir = process.env.APPDATA || 
+                    (process.platform === 'darwin' ? process.env.HOME + '/Library/Preferences' : process.env.HOME + "/.local/share");
+    return path.join(baseDir, "maqmanager", "offline_cache");
+};
+
+const CACHE_DIR = getCacheDir();
+console.log(`📂 Pasta de Cache Offline: ${CACHE_DIR}`);
+
+if (!fs.existsSync(CACHE_DIR)) fs.mkdirSync(CACHE_DIR, { recursive: true });
+
+async function executeRead(sql, params, cacheKey) {
+    const cacheFile = path.join(CACHE_DIR, `${cacheKey}.json`);
+    try {
+        const [rows] = await pool.execute(sql, params);
+        fsPromises.writeFile(cacheFile, JSON.stringify(rows)).catch(e => console.error(`Erro cache ${cacheKey}:`, e.message));
+        return { rows, fromCache: false };
+    } catch (err) {
+        console.warn(`⚠️ Falha DB, lendo cache: ${cacheKey}`);
+        try {
+            const data = await fsPromises.readFile(cacheFile, 'utf8');
+            return { rows: JSON.parse(data), fromCache: true };
+        } catch (e) { throw err; }
+    }
+}
 
 // ==================== FUNÇÕES UTILITÁRIAS ====================
 // Função utilitária
@@ -195,137 +260,137 @@ async function generateRepairPDF(reparacaoId, pages = 'all') {
                     // Em vez de escrever o código aqui, chamamos a função
                     y = desenharCabecalho();
 
-                // --- TÍTULO E INFO REPARAÇÃO (Mantém-se igual) ---
+                    // --- TÍTULO E INFO REPARAÇÃO (Mantém-se igual) ---
 
-                checkSpace(30);
-                doc.fontSize(11).font("Helvetica-Bold").text("ORÇAMENTO DE REPARAÇÃO", 0, y, { align: "center" });
-                y += 20;
+                    checkSpace(30);
+                    doc.fontSize(11).font("Helvetica-Bold").text("ORÇAMENTO DE REPARAÇÃO", 0, y, { align: "center" });
+                    y += 20;
 
-                doc.fontSize(10).font("Helvetica")
-                    .text(`Reparação Nº: `, left, y, { continued: true })
-                    .font("Helvetica-Bold").fontSize(11)
-                    .text(`${rep.numreparacao || rep.id}`, { continued: false })
-                    .font("Helvetica").fontSize(10);
+                    doc.fontSize(10).font("Helvetica")
+                        .text(`Reparação Nº: `, left, y, { continued: true })
+                        .font("Helvetica-Bold").fontSize(11)
+                        .text(`${rep.numreparacao || rep.id}`, { continued: false })
+                        .font("Helvetica").fontSize(10);
 
-                const dataString = `Data Entrada: ${new Date(rep.dataentrega).toLocaleDateString("pt-PT")}`;
-                doc.text(dataString, 420, y);
+                    const dataString = `Data Entrada: ${new Date(rep.dataentrega).toLocaleDateString("pt-PT")}`;
+                    doc.text(dataString, 420, y);
 
-                const dataStri = `Data Orçamento: ${new Date().toLocaleDateString("pt-PT")}`;
-                doc.text(dataStri, 420, y + 14);
+                    const dataStri = `Data Orçamento: ${new Date().toLocaleDateString("pt-PT")}`;
+                    doc.text(dataStri, 420, y + 14);
 
-                y += 14;
-                textBlock(`Estado: ${rep.estadoorcamento || "N/A"}`, left);
-
-                // --- EQUIPAMENTO ---
-                y += 10;
-                checkSpace(40);
-                doc.fontSize(11).font("Helvetica-Bold").text("EQUIPAMENTO", left, y);
-                y += 14;
-                doc.fontSize(10).font("Helvetica").text(`Máquina: ${rep.nomemaquina}`, left, y);
-                y += 12;
-                textBlock(`Estado da Reparação: ${rep.estadoreparacao || "Pendente"}`, left);
-
-                // --- TABELA DE PEÇAS ---
-                y += 15;
-                checkSpace(30);
-                doc.fontSize(11).font("Helvetica-Bold").text("PEÇAS E SERVIÇOS", left, y);
-                y += 15;
-
-                // (Cabeçalho da Tabela - Igual)
-                doc.fontSize(9).font("Helvetica-Bold");
-                doc.text("DESCRIÇÃO", col.d, y); doc.text("REF. INTERNA", col.ref, y);
-                doc.text("QTD", col.qtd, y); doc.text("PREÇO", col.preco, y);
-                doc.text("DSC", col.dsc, y); doc.text("TOTAL", col.total, y);
-                y += 10;
-                doc.moveTo(col.d, y).lineTo(550, y).lineWidth(1).stroke();
-                y += 8;
-
-                let totalPecas = 0;
-                doc.font("Helvetica").fontSize(9);
-
-                // LOOP PEÇAS (Igual)
-                for (const p of pecas) {
-                    // ... (O teu código do loop de peças mantém-se INTACTO aqui) ...
-                    // Vou resumir para não ocupar espaço, mas deves manter o teu bloco `for` original
-                    if (p.is_text) {
-                        const linha = p.texto || p.observacao || p.tipopeca || "";
-                        if (!linha.trim()) continue;
-                        checkSpace(14);
-                        doc.font("Helvetica-Oblique").fillColor("#444444").text(linha, col.d, y, { width: col.total - col.d });
-                        doc.fillColor("black").font("Helvetica");
-                        y += 12;
-                        doc.moveTo(col.d, y - 2).lineTo(550, y - 2).dash(1, { space: 2 }).strokeColor("#eeeeee").stroke().undash().strokeColor("black");
-                        continue;
-                    }
-                    const qtd = Number(p.quantidade || 0);
-                    const unit = Number(p.preco_unitario || 0);
-                    const desc = Number(p.desconto_percentual || 0);
-                    const final = p.preco_com_desconto != null ? Number(p.preco_com_desconto) : unit;
-                    const total = final * qtd;
-
-                    checkSpace(14);
-                    doc.text((p.tipopeca || "").substring(0, 45), col.d, y, { width: col.ref - col.d - 5, ellipsis: true });
-                    doc.text((p.marca || "").substring(0, 20), col.ref, y, { width: col.qtd - col.ref - 5, ellipsis: true });
-                    doc.text(qtd.toString(), col.qtd, y);
-                    doc.text(formatMoney(unit), col.preco, y);
-                    doc.text(desc > 0 ? `${desc.toFixed(1)}%` : "-", col.dsc, y);
-                    doc.text(formatMoney(total), col.total, y);
-
-                    totalPecas += total;
                     y += 14;
-                    doc.moveTo(col.d, y - 4).lineTo(550, y - 4).dash(1, { space: 2 }).strokeColor("#cccccc").stroke().undash().strokeColor("black");
-                }
+                    textBlock(`Estado: ${rep.estadoorcamento || "N/A"}`, left);
 
-                // --- TOTAIS E RODAPÉ (Igual ao teu original) ---
-                const maoObra = Number(rep.mao_obra) || 0;
-                const totalGeral = totalPecas + maoObra;
-                const footerHeight = 75;
-                const totalsBlockHeight = 130;
-                const spaceBetween = 15;
-                let totalsStartY = pageBottom - footerHeight - spaceBetween - totalsBlockHeight;
+                    // --- EQUIPAMENTO ---
+                    y += 10;
+                    checkSpace(40);
+                    doc.fontSize(11).font("Helvetica-Bold").text("EQUIPAMENTO", left, y);
+                    y += 14;
+                    doc.fontSize(10).font("Helvetica").text(`Máquina: ${rep.nomemaquina}`, left, y);
+                    y += 12;
+                    textBlock(`Estado da Reparação: ${rep.estadoreparacao || "Pendente"}`, left);
 
-                if (y > totalsStartY) { doc.addPage(); totalsStartY = pageBottom - footerHeight - spaceBetween - totalsBlockHeight; y = totalsStartY; }
-                else { y = totalsStartY; }
+                    // --- TABELA DE PEÇAS ---
+                    y += 15;
+                    checkSpace(30);
+                    doc.fontSize(11).font("Helvetica-Bold").text("PEÇAS E SERVIÇOS", left, y);
+                    y += 15;
 
-                // Bloco de Totais
-                const labelX = 320; const valueX = 440;
-                doc.font("Helvetica").fontSize(9);
-                doc.text("Subtotal Peças:", labelX, y, { align: "right", width: 110 });
-                doc.text(formatMoney(totalPecas), valueX, y, { align: "right", width: 100 });
-                y += 14;
-                doc.text("Mão de Obra:", labelX, y, { align: "right", width: 110 });
-                doc.text(formatMoney(maoObra), valueX, y, { align: "right", width: 100 });
-                y += 14;
-                doc.moveTo(labelX + 20, y - 2).lineTo(550, y - 2).stroke();
-                y += 5;
-                doc.fontSize(10).font("Helvetica-Bold");
-                doc.text("Total Líquido:", labelX, y, { align: "right", width: 110 });
-                doc.text(formatMoney(totalGeral), valueX, y, { align: "right", width: 100 });
-                y += 16;
-                const valorIva = totalGeral * 0.23;
-                const totalComIva = totalGeral + valorIva;
-                doc.fontSize(10).font("Helvetica").fillColor("#444444");
-                doc.text("IVA (23%):", labelX, y, { align: "right", width: 110 });
-                doc.text(formatMoney(valorIva), valueX, y, { align: "right", width: 100 });
-                y += 16;
-                doc.rect(labelX, y - 4, 240, 24).fillColor("#f0f0f0").fill();
-                doc.fillColor("black").fontSize(12).font("Helvetica-Bold");
-                doc.text("TOTAL A PAGAR:", labelX + 10, y + 2);
-                doc.text(formatMoney(totalComIva), valueX, y + 2, { align: "right", width: 90 });
+                    // (Cabeçalho da Tabela - Igual)
+                    doc.fontSize(9).font("Helvetica-Bold");
+                    doc.text("DESCRIÇÃO", col.d, y); doc.text("REF. INTERNA", col.ref, y);
+                    doc.text("QTD", col.qtd, y); doc.text("PREÇO", col.preco, y);
+                    doc.text("DSC", col.dsc, y); doc.text("TOTAL", col.total, y);
+                    y += 10;
+                    doc.moveTo(col.d, y).lineTo(550, y).lineWidth(1).stroke();
+                    y += 8;
 
-                // Rodapé
-                y = pageBottom - footerHeight;
-                doc.fontSize(8).font("Helvetica-Bold").text("CONDIÇÕES GERAIS:", left, y);
-                y += 12;
-                doc.fontSize(7).font("Helvetica");
-                const condicoes = [
-                    "• Não asseguramos assistência a produtos não comercializados por nós.",
-                    "• Orçamento válido por 30 dias. A reparação inicia-se após aprovação.",
-                    "• A devolução de equipamentos montados cujo o orçamento tenha sido recusado, implica um custo de 25€",
-                    "• Equipamentos não levantados no prazo de 60 dias, serão sujeitos a taxa de armazenagem de 5€/dia.",
-                    "• Equipamentos não levantados no prazo de 6 meses consideram-se abandonados.",
-                ];
-                condicoes.forEach(cond => { doc.text(cond, left, y); y += 9; });
+                    let totalPecas = 0;
+                    doc.font("Helvetica").fontSize(9);
+
+                    // LOOP PEÇAS (Igual)
+                    for (const p of pecas) {
+                        // ... (O teu código do loop de peças mantém-se INTACTO aqui) ...
+                        // Vou resumir para não ocupar espaço, mas deves manter o teu bloco `for` original
+                        if (p.is_text) {
+                            const linha = p.texto || p.observacao || p.tipopeca || "";
+                            if (!linha.trim()) continue;
+                            checkSpace(14);
+                            doc.font("Helvetica-Oblique").fillColor("#444444").text(linha, col.d, y, { width: col.total - col.d });
+                            doc.fillColor("black").font("Helvetica");
+                            y += 12;
+                            doc.moveTo(col.d, y - 2).lineTo(550, y - 2).dash(1, { space: 2 }).strokeColor("#eeeeee").stroke().undash().strokeColor("black");
+                            continue;
+                        }
+                        const qtd = Number(p.quantidade || 0);
+                        const unit = Number(p.preco_unitario || 0);
+                        const desc = Number(p.desconto_percentual || 0);
+                        const final = p.preco_com_desconto != null ? Number(p.preco_com_desconto) : unit;
+                        const total = final * qtd;
+
+                        checkSpace(14);
+                        doc.text((p.tipopeca || "").substring(0, 45), col.d, y, { width: col.ref - col.d - 5, ellipsis: true });
+                        doc.text((p.marca || "").substring(0, 20), col.ref, y, { width: col.qtd - col.ref - 5, ellipsis: true });
+                        doc.text(qtd.toString(), col.qtd, y);
+                        doc.text(formatMoney(unit), col.preco, y);
+                        doc.text(desc > 0 ? `${desc.toFixed(1)}%` : "-", col.dsc, y);
+                        doc.text(formatMoney(total), col.total, y);
+
+                        totalPecas += total;
+                        y += 14;
+                        doc.moveTo(col.d, y - 4).lineTo(550, y - 4).dash(1, { space: 2 }).strokeColor("#cccccc").stroke().undash().strokeColor("black");
+                    }
+
+                    // --- TOTAIS E RODAPÉ (Igual ao teu original) ---
+                    const maoObra = Number(rep.mao_obra) || 0;
+                    const totalGeral = totalPecas + maoObra;
+                    const footerHeight = 75;
+                    const totalsBlockHeight = 130;
+                    const spaceBetween = 15;
+                    let totalsStartY = pageBottom - footerHeight - spaceBetween - totalsBlockHeight;
+
+                    if (y > totalsStartY) { doc.addPage(); totalsStartY = pageBottom - footerHeight - spaceBetween - totalsBlockHeight; y = totalsStartY; }
+                    else { y = totalsStartY; }
+
+                    // Bloco de Totais
+                    const labelX = 320; const valueX = 440;
+                    doc.font("Helvetica").fontSize(9);
+                    doc.text("Subtotal Peças:", labelX, y, { align: "right", width: 110 });
+                    doc.text(formatMoney(totalPecas), valueX, y, { align: "right", width: 100 });
+                    y += 14;
+                    doc.text("Mão de Obra:", labelX, y, { align: "right", width: 110 });
+                    doc.text(formatMoney(maoObra), valueX, y, { align: "right", width: 100 });
+                    y += 14;
+                    doc.moveTo(labelX + 20, y - 2).lineTo(550, y - 2).stroke();
+                    y += 5;
+                    doc.fontSize(10).font("Helvetica-Bold");
+                    doc.text("Total Líquido:", labelX, y, { align: "right", width: 110 });
+                    doc.text(formatMoney(totalGeral), valueX, y, { align: "right", width: 100 });
+                    y += 16;
+                    const valorIva = totalGeral * 0.23;
+                    const totalComIva = totalGeral + valorIva;
+                    doc.fontSize(10).font("Helvetica").fillColor("#444444");
+                    doc.text("IVA (23%):", labelX, y, { align: "right", width: 110 });
+                    doc.text(formatMoney(valorIva), valueX, y, { align: "right", width: 100 });
+                    y += 16;
+                    doc.rect(labelX, y - 4, 240, 24).fillColor("#f0f0f0").fill();
+                    doc.fillColor("black").fontSize(12).font("Helvetica-Bold");
+                    doc.text("TOTAL A PAGAR:", labelX + 10, y + 2);
+                    doc.text(formatMoney(totalComIva), valueX, y + 2, { align: "right", width: 90 });
+
+                    // Rodapé
+                    y = pageBottom - footerHeight;
+                    doc.fontSize(8).font("Helvetica-Bold").text("CONDIÇÕES GERAIS:", left, y);
+                    y += 12;
+                    doc.fontSize(7).font("Helvetica");
+                    const condicoes = [
+                        "• Não asseguramos assistência a produtos não comercializados por nós.",
+                        "• Orçamento válido por 30 dias. A reparação inicia-se após aprovação.",
+                        "• A devolução de equipamentos montados cujo o orçamento tenha sido recusado, implica um custo de 25€",
+                        "• Equipamentos não levantados no prazo de 60 dias, serão sujeitos a taxa de armazenagem de 5€/dia.",
+                        "• Equipamentos não levantados no prazo de 6 meses consideram-se abandonados.",
+                    ];
+                    condicoes.forEach(cond => { doc.text(cond, left, y); y += 9; });
 
                 } // Fim do IF da Página 1
 
@@ -334,117 +399,117 @@ async function generateRepairPDF(reparacaoId, pages = 'all') {
                 // ============================================================
 
                 if (pages === 'all' || pages === '2') {
-                // 1. Força SEMPRE uma nova página para a folha de aprovação
-                doc.addPage();
-
-                // 2. Desenha o cabeçalho e obtém o Y inicial
-                y = desenharCabecalho();
-
-                // Ajuste de segurança para garantir que não escrevemos cima do cabeçalho
-                y = Math.max(y, 100) + 20;
-
-                // --- TÍTULO ---
-                doc.fontSize(11).font("Helvetica-Bold").text("ORÇAMENTO DE REPARAÇÃO", 0, y, { align: "center" });
-                y += 20;
-
-                // --- DADOS DO ORÇAMENTO (Nº e Data) ---
-                doc.fontSize(10).font("Helvetica")
-                    .text(`Reparação Nº: `, left, y, { continued: true })
-                    .font("Helvetica-Bold").fontSize(11)
-                    .text(`${rep.numreparacao || rep.id}`, { continued: false })
-                    .font("Helvetica").fontSize(10);
-
-                const dataStr = `Data: ${new Date().toLocaleDateString("pt-PT")}`;
-                // Desenha a data alinhada à direita (posição 450 fixada para A4 padrão)
-                doc.text(dataStr, 450, y);
-
-                y += 14;
-                textBlock(`Estado: ${rep.estadoorcamento || "N/A"}`, left);
-
-                // --- EQUIPAMENTO ---
-                y += 10;
-                doc.fontSize(11).font("Helvetica-Bold").text("EQUIPAMENTO", left, y);
-                y += 14;
-
-                // Usamos text normal em vez de textBlock aqui para ter mais controlo caso o nome seja longo
-                doc.fontSize(10).font("Helvetica");
-                doc.text(`Máquina: ${rep.nomemaquina}`, left, y, { width: 480 }); // Limita a largura para não bater na margem
-                y += doc.heightOfString(`Máquina: ${rep.nomemaquina}`, { width: 480 }) + 2;
-
-                textBlock(`Estado da Reparação: ${rep.estadoreparacao || "Pendente"}`, left);
-
-                y += 20; // Espaço extra para separar a info do texto legal
-
-                // --- TEXTO INTRODUTÓRIO ---
-                doc.font("Helvetica").fontSize(10);
-                doc.text("Exmos. Senhores,", left, y);
-                y += 15;
-                doc.text("Junto enviamos o Orçamento referente à reparação do equipamento supra referido.", left, y);
-                y += 15;
-                doc.text("Agradecemos que nos transmitam, com a possível brevidade, as instruções que julgarem convenientes, assinalando \"X\" nas quadrículas adequadas para o efeito:", left, y);
-                y += 25;
-
-                // --- FUNÇÃO AUXILIAR PARA CHECKBOXES (Mantida igual, funciona bem) ---
-                const drawCheckboxOption = (texto, indent = 0) => {
-                    const boxSize = 12;
-                    const textX = left + 20 + indent;
-                    const boxX = left + indent;
-                    const maxTextWidth = 450 - indent;
-
-                    // Verifica se ainda estamos dentro da página (segurança)
-                    if (y + 30 > pageBottom) { doc.addPage(); y = 50; }
-
-                    doc.rect(boxX, y, boxSize, boxSize).stroke();
-
-                    const textOptions = { width: maxTextWidth, align: 'left' };
-                    const textHeight = doc.heightOfString(texto, textOptions);
-
-                    // Centralizar texto verticalmente com a caixa se for linha única
-                    const textY = textHeight < 15 ? y + 2 : y;
-
-                    doc.text(texto, textX, textY, textOptions);
-
-                    y += Math.max(textHeight, boxSize) + 12;
-                };
-
-                // --- OPÇÕES ---
-                drawCheckboxOption("Procedam a reparação da máquina / equipamento supra referido. Compreendemos que este valor é um valor estimado e que o custo final da reparação poderá ser diferente do agora apresentado.");
-
-                y += 5;
-                drawCheckboxOption("Não aceitamos a reparação relativa ao Orçamento apresentado. Queiram proceder à devolução da máquina / equipamento para as nossas instalações, nas seguintes condições:");
-
-                // Sub-opções
-                const subIndent = 25;
-                drawCheckboxOption("Montada (Implica débito no valor de 25,00 EUR + Portes envio)", subIndent);
-                drawCheckboxOption("Desmontada (Implica débito no valor de 15,00 EUR + Portes envio)", subIndent);
-
-                // --- ESPAÇO PARA ASSINATURA ---
-                // Corrigido o erro de sintaxe (estava "6" numa linha e "0" noutra)
-                const signatureBlockHeight = 60;
-
-                // Calcula onde começar a assinatura (fundo da página)
-                let signatureY = pageBottom - signatureBlockHeight;
-
-                // Lógica de Segurança:
-                // Se o conteúdo acima ocupou muito espaço e está a sobrepor o fundo,
-                // empurra a assinatura para logo abaixo do texto (respeitando margem mínima)
-                if (signatureY < y + 10) {
-                    signatureY = y + 10;
-                }
-
-                // Se mesmo assim já passou do limite da página, adiciona nova (muito raro acontecer com este texto)
-                if (signatureY + signatureBlockHeight > doc.page.height) {
+                    // 1. Força SEMPRE uma nova página para a folha de aprovação
                     doc.addPage();
-                    signatureY = 50;
-                }
 
-                doc.font("Helvetica").fontSize(10);
-                doc.text("Data: _____ / _____ / ________", left, signatureY);
-                doc.text(" Assinatura do Cliente", 350, signatureY);
+                    // 2. Desenha o cabeçalho e obtém o Y inicial
+                    y = desenharCabecalho();
 
-                // Linha para assinar
-                doc.moveTo(350, signatureY + 35).lineTo(520, signatureY + 35).lineWidth(1).stroke();
-                doc.font("Helvetica-Oblique").fontSize(8).text("(Assinatura e Carimbo)", 350, signatureY + 40);
+                    // Ajuste de segurança para garantir que não escrevemos cima do cabeçalho
+                    y = Math.max(y, 100) + 20;
+
+                    // --- TÍTULO ---
+                    doc.fontSize(11).font("Helvetica-Bold").text("ORÇAMENTO DE REPARAÇÃO", 0, y, { align: "center" });
+                    y += 20;
+
+                    // --- DADOS DO ORÇAMENTO (Nº e Data) ---
+                    doc.fontSize(10).font("Helvetica")
+                        .text(`Reparação Nº: `, left, y, { continued: true })
+                        .font("Helvetica-Bold").fontSize(11)
+                        .text(`${rep.numreparacao || rep.id}`, { continued: false })
+                        .font("Helvetica").fontSize(10);
+
+                    const dataStr = `Data: ${new Date().toLocaleDateString("pt-PT")}`;
+                    // Desenha a data alinhada à direita (posição 450 fixada para A4 padrão)
+                    doc.text(dataStr, 450, y);
+
+                    y += 14;
+                    textBlock(`Estado: ${rep.estadoorcamento || "N/A"}`, left);
+
+                    // --- EQUIPAMENTO ---
+                    y += 10;
+                    doc.fontSize(11).font("Helvetica-Bold").text("EQUIPAMENTO", left, y);
+                    y += 14;
+
+                    // Usamos text normal em vez de textBlock aqui para ter mais controlo caso o nome seja longo
+                    doc.fontSize(10).font("Helvetica");
+                    doc.text(`Máquina: ${rep.nomemaquina}`, left, y, { width: 480 }); // Limita a largura para não bater na margem
+                    y += doc.heightOfString(`Máquina: ${rep.nomemaquina}`, { width: 480 }) + 2;
+
+                    textBlock(`Estado da Reparação: ${rep.estadoreparacao || "Pendente"}`, left);
+
+                    y += 20; // Espaço extra para separar a info do texto legal
+
+                    // --- TEXTO INTRODUTÓRIO ---
+                    doc.font("Helvetica").fontSize(10);
+                    doc.text("Exmos. Senhores,", left, y);
+                    y += 15;
+                    doc.text("Junto enviamos o Orçamento referente à reparação do equipamento supra referido.", left, y);
+                    y += 15;
+                    doc.text("Agradecemos que nos transmitam, com a possível brevidade, as instruções que julgarem convenientes, assinalando \"X\" nas quadrículas adequadas para o efeito:", left, y);
+                    y += 25;
+
+                    // --- FUNÇÃO AUXILIAR PARA CHECKBOXES (Mantida igual, funciona bem) ---
+                    const drawCheckboxOption = (texto, indent = 0) => {
+                        const boxSize = 12;
+                        const textX = left + 20 + indent;
+                        const boxX = left + indent;
+                        const maxTextWidth = 450 - indent;
+
+                        // Verifica se ainda estamos dentro da página (segurança)
+                        if (y + 30 > pageBottom) { doc.addPage(); y = 50; }
+
+                        doc.rect(boxX, y, boxSize, boxSize).stroke();
+
+                        const textOptions = { width: maxTextWidth, align: 'left' };
+                        const textHeight = doc.heightOfString(texto, textOptions);
+
+                        // Centralizar texto verticalmente com a caixa se for linha única
+                        const textY = textHeight < 15 ? y + 2 : y;
+
+                        doc.text(texto, textX, textY, textOptions);
+
+                        y += Math.max(textHeight, boxSize) + 12;
+                    };
+
+                    // --- OPÇÕES ---
+                    drawCheckboxOption("Procedam a reparação da máquina / equipamento supra referido. Compreendemos que este valor é um valor estimado e que o custo final da reparação poderá ser diferente do agora apresentado.");
+
+                    y += 5;
+                    drawCheckboxOption("Não aceitamos a reparação relativa ao Orçamento apresentado. Queiram proceder à devolução da máquina / equipamento para as nossas instalações, nas seguintes condições:");
+
+                    // Sub-opções
+                    const subIndent = 25;
+                    drawCheckboxOption("Montada (Implica débito no valor de 25,00 EUR + Portes envio)", subIndent);
+                    drawCheckboxOption("Desmontada (Implica débito no valor de 15,00 EUR + Portes envio)", subIndent);
+
+                    // --- ESPAÇO PARA ASSINATURA ---
+                    // Corrigido o erro de sintaxe (estava "6" numa linha e "0" noutra)
+                    const signatureBlockHeight = 60;
+
+                    // Calcula onde começar a assinatura (fundo da página)
+                    let signatureY = pageBottom - signatureBlockHeight;
+
+                    // Lógica de Segurança:
+                    // Se o conteúdo acima ocupou muito espaço e está a sobrepor o fundo,
+                    // empurra a assinatura para logo abaixo do texto (respeitando margem mínima)
+                    if (signatureY < y + 10) {
+                        signatureY = y + 10;
+                    }
+
+                    // Se mesmo assim já passou do limite da página, adiciona nova (muito raro acontecer com este texto)
+                    if (signatureY + signatureBlockHeight > doc.page.height) {
+                        doc.addPage();
+                        signatureY = 50;
+                    }
+
+                    doc.font("Helvetica").fontSize(10);
+                    doc.text("Data: _____ / _____ / ________", left, signatureY);
+                    doc.text(" Assinatura do Cliente", 350, signatureY);
+
+                    // Linha para assinar
+                    doc.moveTo(350, signatureY + 35).lineTo(520, signatureY + 35).lineWidth(1).stroke();
+                    doc.font("Helvetica-Oblique").fontSize(8).text("(Assinatura e Carimbo)", 350, signatureY + 40);
                 } // Fim do IF da Página 2
 
                 doc.end();
@@ -628,7 +693,8 @@ app.get("/alarmes/todos", async (req, res) => {
       ORDER BY dias_alerta DESC
     `
 
-        const [rows] = await pool.execute(sql)
+        const { rows, fromCache } = await executeRead(sql, [], 'alarmes_todos');
+        if (fromCache) res.setHeader('x-offline-mode', 'true');
 
         // Processar alarmes e adicionar informações de prioridade
         const alarmes = rows.map((row) => {
@@ -725,7 +791,8 @@ app.get("/alarmes/estatisticas", async (req, res) => {
       WHERE tipo_alarme IS NOT NULL
     `
 
-        const [rows] = await pool.execute(sql)
+        const { rows, fromCache } = await executeRead(sql, [], 'alarmes_estatisticas');
+        if (fromCache) res.setHeader('x-offline-mode', 'true');
         res.json(rows[0])
     } catch (err) {
         handleQueryError(err, res, "Erro ao buscar estatísticas de alarmes")
@@ -1039,7 +1106,8 @@ app.get("/alarmes/resumo", async (req, res) => {
       LIMIT 99
     `
 
-        const [rows] = await pool.execute(sql)
+        const { rows, fromCache } = await executeRead(sql, [], 'alarmes_resumo');
+        if (fromCache) res.setHeader('x-offline-mode', 'true');
         res.json({
             alarmes: rows,
             total: rows.length,
@@ -1221,7 +1289,8 @@ app.get("/alarmes/debug-geral", async (req, res) => {
 // Endpoint para listar todos os clientes
 app.get("/clientes", async (req, res) => {
     try {
-        const [rows] = await pool.execute("SELECT * FROM cliente ORDER BY nome")
+        const { rows, fromCache } = await executeRead("SELECT * FROM cliente ORDER BY nome", [], 'clientes_lista');
+        if (fromCache) res.setHeader('x-offline-mode', 'true');
         res.json(rows)
     } catch (err) {
         handleQueryError(err, res, "Erro ao buscar clientes")
@@ -1346,7 +1415,8 @@ app.get("/reparacoes", async (req, res) => {
   `
 
     try {
-        const [rows] = await pool.execute(sql)
+        const { rows, fromCache } = await executeRead(sql, [], 'reparacoes_lista');
+        if (fromCache) res.setHeader('x-offline-mode', 'true');
         res.json(rows)
     } catch (err) {
         handleQueryError(err, res, "Erro ao buscar as reparações")
@@ -1368,7 +1438,8 @@ app.get("/reparacoes/:id", async (req, res) => {
   `
 
     try {
-        const [rows] = await pool.execute(sql, [id])
+        const { rows, fromCache } = await executeRead(sql, [id], `reparacao_${id}`);
+        if (fromCache) res.setHeader('x-offline-mode', 'true');
         if (rows.length === 0) return res.status(404).json({ error: "Reparação não encontrada" })
         res.json(rows[0])
     } catch (err) {
@@ -1396,6 +1467,10 @@ app.post("/reparacoes", async (req, res) => {
     } = req.body
 
     try {
+        // Bloquear escrita se estiver offline
+        try { await pool.query("SELECT 1"); } 
+        catch (e) { return res.status(503).json({ error: "Modo Offline: Não é possível criar registros." }); }
+
         if (!dataentrega) {
             return res.status(400).json({ error: "Data de entrada é obrigatória" })
         }
@@ -1576,6 +1651,10 @@ app.put("/reparacoes/:id", async (req, res) => {
     if (!id || isNaN(id)) return res.status(400).json({ error: "ID inválido" })
 
     try {
+        // Bloquear escrita se estiver offline
+        try { await pool.query("SELECT 1"); } 
+        catch (e) { return res.status(503).json({ error: "Modo Offline: Não é possível atualizar registros." }); }
+
         // Mapear campos do novo frontend para o formato antigo se necessário
         if (equipamento && !nomemaquina) nomemaquina = equipamento
         if (data_entrada && !dataentrega) dataentrega = data_entrada

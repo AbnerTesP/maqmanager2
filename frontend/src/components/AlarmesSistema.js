@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useMemo } from "react"
 import { Pagination } from "react-bootstrap"
 import "bootstrap/dist/css/bootstrap.min.css"
 import "bootstrap-icons/font/bootstrap-icons.css"
@@ -97,6 +97,7 @@ const AlarmesSistema = () => {
     // Estado para filtro e paginação, inicializado a partir do sessionStorage
     const [filtroAtivo, setFiltroAtivo] = useState(() => sessionStorage.getItem('alarmesFiltroAtivo') || "todos");
     const [currentPage, setCurrentPage] = useState(() => Number(sessionStorage.getItem('alarmesCurrentPage')) || 1);
+    const [searchTerm, setSearchTerm] = useState("");
 
     const ITEMS_PER_PAGE = 5;
 
@@ -147,12 +148,21 @@ const AlarmesSistema = () => {
     }
 
     // Filtros
-    const alarmesFiltrados = alarmes.filter(a =>
-        filtroAtivo === "todos" ? true :
-            filtroAtivo === "criticos" ? a.prioridade === "Crítico" :
-                filtroAtivo === "altos" ? a.prioridade === "Alto" :
-                    a.prioridade === "Médio"
-    )
+    const alarmesFiltrados = useMemo(() => {
+        return alarmes.filter(a => {
+            const matchesFilter = filtroAtivo === "todos" ? true :
+                filtroAtivo === "criticos" ? a.prioridade === "Crítico" :
+                    filtroAtivo === "altos" ? a.prioridade === "Alto" :
+                        a.prioridade === "Médio";
+
+            if (!matchesFilter) return false;
+            if (!searchTerm) return true;
+
+            const term = searchTerm.toLowerCase();
+            const text = `${a.nomemaquina} ${a.cliente_nome} ${a.numreparacao || ''} ${a.id} ${a.nomecentro || ''}`.toLowerCase();
+            return text.includes(term);
+        });
+    }, [alarmes, filtroAtivo, searchTerm]);
 
     // Lógica de Paginação
     const totalPages = Math.ceil(alarmesFiltrados.length / ITEMS_PER_PAGE);
@@ -193,6 +203,20 @@ const AlarmesSistema = () => {
             </div>
 
             <div className="card-body pt-0">
+                {/* Barra de Pesquisa */}
+                <div className="mb-3">
+                    <div className="input-group input-group-sm">
+                        <span className="input-group-text bg-light border-end-0"><i className="bi bi-search text-muted"></i></span>
+                        <input
+                            type="text"
+                            className="form-control bg-light border-start-0"
+                            placeholder="Pesquisar cliente, equipamento, nº..."
+                            value={searchTerm}
+                            onChange={(e) => { setSearchTerm(e.target.value); setCurrentPage(1); }}
+                        />
+                    </div>
+                </div>
+
                 {/* Filtros */}
                 <div className="d-flex gap-2 mb-3 overflow-auto pb-2" style={{ scrollbarWidth: 'none' }}>
                     {filtrosConfig.map(f => (
