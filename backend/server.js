@@ -56,7 +56,7 @@ async function getActivePool() {
             return activePool;
         } catch (e) {
             console.warn(`⚠️ Falha ao conectar a ${host}: ${e.message}`);
-            await tempPool.end().catch(() => {});
+            await tempPool.end().catch(() => { });
         }
     }
 
@@ -89,8 +89,8 @@ pool.getConnection()
 // ==================== SISTEMA DE CACHE OFFLINE ====================
 // ALTERADO: Usar pasta do sistema (AppData) para evitar erros de permissão em produção
 const getCacheDir = () => {
-    const baseDir = process.env.APPDATA || 
-                    (process.platform === 'darwin' ? process.env.HOME + '/Library/Preferences' : process.env.HOME + "/.local/share");
+    const baseDir = process.env.APPDATA ||
+        (process.platform === 'darwin' ? process.env.HOME + '/Library/Preferences' : process.env.HOME + "/.local/share");
     return path.join(baseDir, "maqmanager", "offline_cache");
 };
 
@@ -1405,6 +1405,25 @@ app.delete("/clientes/:id", async (req, res) => {
 
 // ==================== ROTAS DE REPARAÇÕES ====================
 
+// Endpoint para estatísticas de reparações (Dashboard)
+app.get("/reparacoes/estatisticas", async (req, res) => {
+    try {
+        const sql = `
+            SELECT 
+                COUNT(*) as total,
+                SUM(CASE WHEN datasaida IS NOT NULL THEN 1 ELSE 0 END) as entregues,
+                SUM(CASE WHEN datasaida IS NULL AND dataconclusao IS NOT NULL THEN 1 ELSE 0 END) as prontas,
+                SUM(CASE WHEN datasaida IS NULL AND dataconclusao IS NULL THEN 1 ELSE 0 END) as em_andamento
+            FROM reparacao
+        `
+        const { rows, fromCache } = await executeRead(sql, [], 'reparacoes_estatisticas');
+        if (fromCache) res.setHeader('x-offline-mode', 'true');
+        res.json(rows[0]);
+    } catch (err) {
+        handleQueryError(err, res, "Erro ao buscar estatísticas de reparações");
+    }
+})
+
 // Endpoint para buscar reparações
 app.get("/reparacoes", async (req, res) => {
     const sql = `
@@ -1468,7 +1487,7 @@ app.post("/reparacoes", async (req, res) => {
 
     try {
         // Bloquear escrita se estiver offline
-        try { await pool.query("SELECT 1"); } 
+        try { await pool.query("SELECT 1"); }
         catch (e) { return res.status(503).json({ error: "Modo Offline: Não é possível criar registros." }); }
 
         if (!dataentrega) {
@@ -1652,7 +1671,7 @@ app.put("/reparacoes/:id", async (req, res) => {
 
     try {
         // Bloquear escrita se estiver offline
-        try { await pool.query("SELECT 1"); } 
+        try { await pool.query("SELECT 1"); }
         catch (e) { return res.status(503).json({ error: "Modo Offline: Não é possível atualizar registros." }); }
 
         // Mapear campos do novo frontend para o formato antigo se necessário

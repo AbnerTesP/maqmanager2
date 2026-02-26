@@ -116,12 +116,14 @@ function ReparacoesView() {
     }, [])
 
     const getStatus = useCallback((reparacao) => {
+        // Prioridade às datas para consistência com estatísticas e ciclo de vida
+        if (reparacao.datasaida) return "entregue"
+        if (reparacao.dataconclusao) return "pronta"
+
         const statusRep = reparacao.estadoreparacao?.toLowerCase() || ""
         const statusOrc = reparacao.estadoorcamento?.toLowerCase() || ""
 
         if (statusRep.includes("sem reparação") || statusOrc.includes("recusado")) return "sem_reparacao"
-        if (reparacao.datasaida) return "entregue"
-        if (reparacao.dataconclusao) return "pronta"
         if (reparacao.dataentrega) return "andamento"
         return "pendente"
     }, [])
@@ -149,11 +151,18 @@ function ReparacoesView() {
         const initialStats = { total: 0, andamento: 0, pronta: 0, entregue: 0 }
         return reparacoes.reduce((acc, curr) => {
             acc.total++
-            const status = getStatus(curr)
-            if (acc[status] !== undefined) acc[status]++
+
+            if (curr.datasaida) {
+                acc.entregue++
+            } else if (curr.dataconclusao) {
+                acc.pronta++
+            } else {
+                // Tudo o resto conta como em andamento para fechar a conta (Total = Entregue + Pronta + Andamento)
+                acc.andamento++
+            }
             return acc
         }, initialStats)
-    }, [reparacoes, getStatus, selectedCentro])
+    }, [reparacoes])
 
     const statCardsConfig = [
         { title: stats.andamento, label: "Em Andamento", icon: "bi-hourglass-split", color: "text-warning", bg: "bg-warning" },
