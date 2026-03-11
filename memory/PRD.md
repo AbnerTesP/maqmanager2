@@ -23,17 +23,20 @@ Transform MaqManager (machine repair management Electron desktop app) to a more 
 ## What's Been Implemented (2026-03-11)
 
 ### New Components Created
-- `/frontend/src/components/Sidebar.js` - Collapsible sidebar navigation with alarm badge
+- `/frontend/src/components/Sidebar.js` - Collapsible sidebar navigation with alarm badge (no Configurações)
 - `/frontend/src/components/Layout.js` - Main layout wrapper with sidebar
 - `/frontend/src/components/Dashboard.js` - Main dashboard with stats, recent repairs, alarms
 - `/frontend/src/components/theme-provider.js` - Dark/Light theme context
 - `/frontend/src/lib/utils.js` - Utility functions (cn helper)
 
-### Updated Components
+### Updated Components (ALL PAGES REDESIGNED)
 - `/frontend/src/App.js` - New routing with Layout wrapper
 - `/frontend/src/index.js` - Simplified entry point
 - `/frontend/src/index.css` - Complete Tailwind CSS setup with dark/light themes
 - `/frontend/src/Reparacoes/Reparacoes.js` - Modernized with stat cards, filters, DataTable styling
+- `/frontend/src/Reparacoes/ReparacoesRegisto.js` - **NEW** Modern form with equipment, parts, client, workflow, financial sections
+- `/frontend/src/Reparacoes/ReparacoesEdit.js` - **NEW** Edit form matching new design system
+- `/frontend/src/Reparacoes/ReparacoesView.js` - **NEW** Detail view with PDF modal, financial summary
 - `/frontend/src/components/ClientesList.js` - Grid layout with cards, search, modals
 - `/frontend/src/components/ClienteForm.js` - Professional form with icons
 - `/frontend/src/components/AlarmesSistema.js` - Enhanced with priority filters, card grid, detail modal
@@ -55,29 +58,25 @@ Transform MaqManager (machine repair management Electron desktop app) to a more 
 
 ## Prioritized Backlog
 
-### P0 (Completed)
-- [x] Sidebar navigation
+### P0 (ALL COMPLETED)
+- [x] Sidebar navigation (without Configurações)
 - [x] Dashboard with stats
 - [x] Dark/Light theme toggle
 - [x] Improved alarm system UI
 - [x] Modernized Reparações list
+- [x] Modernized ReparacoesRegisto (new repair form)
+- [x] Modernized ReparacoesEdit (edit form)
+- [x] Modernized ReparacoesView (detail view)
 - [x] Modernized Clientes list
 
-### P1 (Next)
-- [ ] Update ReparacoesRegisto.js with new design
-- [ ] Update ReparacoesEdit.js with new design  
-- [ ] Update ReparacoesView.js with new design
-- [ ] Settings/Configurações page
-
-### P2 (Future)
+### P1 (Future Enhancements)
 - [ ] PDF export styling improvements
 - [ ] Charts and analytics on dashboard
 - [ ] Client repair history view
 
 ## Next Tasks
-1. Apply professional design to remaining pages (ReparacoesRegisto, ReparacoesEdit, ReparacoesView)
-2. Build settings page with theme preferences persistence
-3. Add charts/analytics to dashboard
+1. Add charts/analytics to dashboard (monthly repair evolution, average completion time)
+2. Improve PDF export with branded template
 
 ## Notes
 - Backend connects to MySQL at local IPs (192.168.1.81, 192.168.1.2)
