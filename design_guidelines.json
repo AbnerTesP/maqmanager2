@@ -1,0 +1,166 @@
+{
+  "identity": "E1: The Anti-AI Designer",
+  "project_name": "MaqManager Redesign",
+  "theme_strategy": {
+    "mode": "toggle",
+    "default": "dark",
+    "rationale": "Industrial environments often have varying lighting. Dark mode reduces eye strain in low-light workshops; Light mode is better for office admin and printing."
+  },
+  "design_principles": [
+    "Fusion over Imitation: Industrial ruggedness meets Swiss precision.",
+    "Emotion First: The UI should feel 'Reliable', 'Heavy-Duty', and 'Precise'.",
+    "Content is King: Data density for repairs and parts is crucial. No wasted whitespace in data tables.",
+    "Zoom In: Use bold, large typography for status and critical alerts.",
+    "Negative Space: Use it to separate the sidebar and major sections, but keep data dense.",
+    "Contrast: High contrast for safety and legibility. Alarms must pop."
+  ],
+  "typography": {
+    "headings": {
+      "family": "Barlow Condensed, sans-serif",
+      "weights": ["600", "700"],
+      "usage": "Page titles, Card headers, KPI values",
+      "rationale": "Compact, strong, industrial feel. Reminiscent of serial numbers and machinery labels."
+    },
+    "body": {
+      "family": "Manrope, sans-serif",
+      "weights": ["400", "500"],
+      "usage": "General text, table data, inputs",
+      "rationale": "Highly legible, modern, geometric but friendly. excellent for UI numbers."
+    },
+    "mono": {
+      "family": "JetBrains Mono, monospace",
+      "usage": "IDs, Serial Numbers, IP addresses, Logs",
+      "rationale": "Clear distinction for technical data."
+    }
+  },
+  "colors": {
+    "palette_name": "The Performance Pro (Industrial Variant)",
+    "primary": {
+      "name": "Industrial Blue",
+      "hex": "#007AFF",
+      "tailwind": "blue-600",
+      "usage": "Primary actions, active states, focus rings"
+    },
+    "secondary": {
+      "name": "Safety Orange",
+      "hex": "#F97316",
+      "tailwind": "orange-500",
+      "usage": "Warnings, attention-grabbing elements, 'Repair in Progress' status"
+    },
+    "neutral": {
+      "light": {
+        "bg": "#F8FAFC",
+        "surface": "#FFFFFF",
+        "text": "#0F172A",
+        "border": "#E2E8F0"
+      },
+      "dark": {
+        "bg": "#09090B",
+        "surface": "#18181B",
+        "text": "#F8FAFC",
+        "border": "#27272A"
+      }
+    },
+    "semantic": {
+      "success": "#22C55E",
+      "warning": "#EAB308",
+      "danger": "#EF4444",
+      "info": "#3B82F6"
+    }
+  },
+  "layout_structure": {
+    "type": "Sidebar + Main Content",
+    "sidebar": {
+      "width": "w-64",
+      "behavior": "Fixed left, collapsible on mobile (though desktop-first)",
+      "content": [
+        "Brand/Logo (Top)",
+        "Navigation Links (Middle)",
+        "User/Settings/Theme Toggle (Bottom)"
+      ]
+    },
+    "dashboard_grid": "Bento Grid Mode B (High Density)",
+    "container_padding": "p-6 md:p-8"
+  },
+  "components_strategy": {
+    "library": "Shadcn/UI",
+    "customization": "Industrial styling - sharp corners or minimal radius (rounded-md), dense padding.",
+    "cards": "Flat, 1px border, subtle shadow. Header separated by border.",
+    "tables": "Dense, distinct headers, row hover effects. Status badges.",
+    "buttons": "Semi-rounded (rounded-md). Primary: Solid Blue. Secondary: Outline.",
+    "inputs": "High contrast borders. Clearly defined focus states."
+  },
+  "visual_enhancers": {
+    "textures": "Subtle noise texture on dark mode backgrounds to prevent banding and add 'material' feel.",
+    "borders": "Micro-borders. Use 'divide-y' and 'divide-x' for data separation.",
+    "shadows": "crisp, low blur shadows for active elements (pop-overs)."
+  },
+  "motion": {
+    "type": "Reduced/Professional",
+    "transitions": "Fast (150ms-200ms) ease-out.",
+    "hover": "Subtle color shift, no massive scaling.",
+    "interactions": "Immediate feedback on clicks. Skeleton loaders for data fetching."
+  },
+  "page_specifics": {
+    "dashboard": {
+      "layout": "Grid with KPI Cards (Top), Recent Repairs (Left Main), Alarms (Right Sidebar/Panel)",
+      "features": "Quick Actions (New Repair, New Client) visible immediately."
+    },
+    "repairs_list": {
+      "component": "DataTable (TanStack Table or improved existing)",
+      "features": "Search bar, Status Filter (Tabs), Date Range Picker, PDF Export Button."
+    },
+    "repair_detail": {
+      "layout": "Header (Status, ID, Actions), 2-Column Grid (Info | Parts/Costs)",
+      "features": "Timeline of status changes, Print Button."
+    },
+    "alarms": {
+      "style": "Notification Center or Dedicated Page. Priority indicators (Color coded dots)."
+    }
+  },
+  "image_urls": {
+    "dashboard_hero": {
+      "url": "https://images.unsplash.com/photo-1581091226825-a6a2a5aee158?q=80&w=2070&auto=format&fit=crop",
+      "description": "Industrial workshop background with machinery",
+      "category": "hero"
+    },
+    "login_bg": {
+      "url": "https://images.unsplash.com/photo-1504917595217-d4dc5ebe6122?q=80&w=2070&auto=format&fit=crop",
+      "description": "Tools on a workbench, focus on precision",
+      "category": "background"
+    },
+    "placeholder_machine": {
+      "url": "https://images.unsplash.com/photo-1588345921523-c2dcdb7f1dcd?q=80&w=2070&auto=format&fit=crop",
+      "description": "Generic machine repair context",
+      "category": "placeholder"
+    },
+    "user_avatar": {
+      "url": "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?q=80&w=100&auto=format&fit=crop",
+      "description": "Default user avatar",
+      "category": "avatar"
+    }
+  },
+  "instructions_to_main_agent": [
+    "Install 'lucide-react', 'clsx', 'tailwind-merge', 'class-variance-authority' immediately.",
+    "Setup Tailwind CSS: Create 'tailwind.config.js' and 'postcss.config.js'. Configure content paths to include all JS/JSX files.",
+    "Create a 'lib/utils.js' file for the 'cn' utility function (Shadcn standard).",
+    "Replace 'NavigationBar.js' with a new 'Sidebar.js' component.",
+    "Create a Layout wrapper component that includes the Sidebar and handles the Theme Toggle.",
+    "Wrap the App contents in a ThemeProvider (create 'components/theme-provider.js').",
+    "Refactor 'Reparacoes.js' (List) to use a modern Table component (create 'components/ui/table.js' first or use a simple Tailwind table structure).",
+    "Enhance 'Alarmes' by creating a 'components/AlarmBadge.js' and 'components/AlarmList.js' with priority colors.",
+    "Keep all API calls and logic from existing files. Only change the JSX/CSS.",
+    "Ensure 'electron.js' window settings allow for a modern frameless look if possible, or at least a clean title bar.",
+    "Use 'Barlow Condensed' for all headings. Import it from Google Fonts in 'index.css'.",
+    "DO NOT DELETE existing logic/functions. Refactor component by component."
+  ],
+  "universal_guidelines": [
+    "Dark colors look good when used independently without gradients. DO NOT use dark colors as gradients.",
+    "Don't make generic centered layouts. Use Bento grids.",
+    "Every interaction needs micro-animations.",
+    "Use 2-3x more spacing than feels comfortable.",
+    "All interactive elements MUST include 'data-testid'.",
+    "Use 'sonner' for toasts.",
+    "NEVER use AI assistant Emoji characters."
+  ]
+}
