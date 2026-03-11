@@ -1,5 +1,3 @@
-"use client"
-
 import { useState, useEffect, useMemo, useCallback } from "react"
 import axios from "axios"
 import ReactModal from 'react-modal'
@@ -197,24 +195,42 @@ function ReparacoesView() {
         if (!reparacao) return {}
 
         const maoObraGeral = Number(reparacao.mao_obra || 0)
-        const totalPecas = pecas.reduce((acc, p) => acc + (Number(p.preco_total) || 0) + (Number(p.mao_obra) || 0), 0)
-        const pecasSemMO = pecas.reduce((acc, p) => acc + (Number(p.preco_total) || 0), 0)
 
-        const subtotal = maoObraGeral + totalPecas
-        const descontoVal = Number(reparacao.desconto || 0)
-        const valorDesconto = reparacao.tipoDesconto === "percentual"
-            ? (subtotal * descontoVal) / 100
-            : descontoVal
+        // Cálculo das peças considerando desconto individual por linha
+        const resumoPecas = pecas.reduce((acc, p) => {
+            const unitario = Number(p.preco_unitario) || 0
+            const quantidade = Number(p.quantidade) || 1
+            const percentual = Number(p.desconto_percentual) || 0
 
-        const totalGeral = Math.max(0, subtotal - valorDesconto)
+            const valorSemDesconto = unitario * quantidade
+            const valorDesconto = valorSemDesconto * (percentual / 100)
+            const valorComDesconto = valorSemDesconto - valorDesconto
+
+            acc.totalBruto += valorComDesconto
+            acc.totalDescontosPecas += valorDesconto
+            return acc
+        }, { totalBruto: 0, totalDescontosPecas: 0 })
+
+        const subtotal = maoObraGeral + resumoPecas.totalBruto
+
+        // Desconto do Cabeçalho (Geral)
+        const descontoCabecalhoVal = Number(reparacao.desconto || 0)
+        const valorDescontoGeral = reparacao.tipo_desconto === "percentual"
+            ? (subtotal * descontoCabecalhoVal) / 100
+            : descontoCabecalhoVal
+
+        // Desconto Total = Soma dos descontos das peças + Desconto do cabeçalho
+        const descontoAcumulado = resumoPecas.totalDescontosPecas + valorDescontoGeral
+        const totalGeral = Math.max(0, subtotal - valorDescontoGeral)
         const iva = totalGeral * 0.23
 
         return {
             maoObraGeral,
-            pecasTotal: totalPecas,
-            pecasSemMO,
+            pecasTotal: resumoPecas.totalBruto,
+            valorDescontoPecas: resumoPecas.totalDescontosPecas, // Descontos somados das peças
+            valorDescontoGeral, // Desconto aplicado no final
+            descontoTotal: descontoAcumulado, // Total de todos os descontos
             subtotal,
-            valorDesconto,
             totalGeral,
             totalComIva: totalGeral + iva,
             temValores: totalGeral > 0 || maoObraGeral > 0 || pecas.length > 0
@@ -279,7 +295,39 @@ function ReparacoesView() {
         { name: "Peça / Ref", selector: row => `${row.tipopeca || ''} ${row.marca || ''}`, wrap: true },
         { name: "Qtd", selector: row => row.quantidade, width: "70px", cell: row => <span className="badge bg-info">{row.quantidade}</span> },
         { name: "Unitário", selector: row => row.preco_unitario, cell: row => formatCurrency(row.preco_unitario), width: "100px" },
-        { name: "Total (+MO)", selector: row => (Number(row.preco_total) + Number(row.mao_obra)), cell: row => <span className="fw-bold text-primary">{formatCurrency(Number(row.preco_total) + Number(row.mao_obra))}</span>, width: "120px" },
+        {
+            name: "Desc.",
+            selector: row => row.desconto_percentual,
+            cell: row => {
+                const descVal = (Number(row.preco_unitario) * Number(row.quantidade) * (Number(row.desconto_percentual) / 100));
+                return (
+                    <div className="d-flex flex-column align-items-end" style={{ lineHeight: '1.1' }}>
+                        <span className="text-danger fw-bold" style={{ fontSize: '0.85rem' }}>-{formatCurrency(descVal)}</span>
+                        {Number(row.desconto_percentual) > 0 && <small className="text-muted" style={{ fontSize: '0.7rem' }}>{Number(row.desconto_percentual)}%</small>}
+                    </div>
+                )
+            },
+            width: "100px",
+            right: true
+        },
+        {
+            name: "Total",
+            selector: row => {
+                const unit = Number(row.preco_unitario) || 0;
+                const qtd = Number(row.quantidade) || 1;
+                const desc = Number(row.desconto_percentual) || 0;
+                return unit * qtd * (1 - desc / 100);
+            },
+            cell: row => {
+                const unit = Number(row.preco_unitario) || 0;
+                const qtd = Number(row.quantidade) || 1;
+                const desc = Number(row.desconto_percentual) || 0;
+                const total = unit * qtd * (1 - desc / 100);
+                return <span className="fw-bold text-primary">{formatCurrency(total)}</span>
+            },
+            width: "120px",
+            right: true
+        },
         { name: "Observação", selector: row => row.observacao, wrap: true, cell: row => <small className="text-muted fst-italic">{row.observacao || "-"}</small> },
         { name: "Status", width: "110px", cell: row => <span className={`badge ${row.existe_no_sistema ? "bg-success" : "bg-warning text-dark"}`}>{row.existe_no_sistema ? "Disp." : "N/A"}</span> }
     ], [])
@@ -473,11 +521,10 @@ function ReparacoesView() {
                                         <span className="text-white text-opacity-75">Peças</span>
                                         <span className="fw-bold">{formatCurrency(totais.pecasTotal)}</span>
                                     </div>
-                                    {totais.valorDesconto > 0 && (
+                                    {totais.descontoTotal > 0 && (
                                         <div className="d-flex justify-content-between mb-2 text-warning">
-                                            <span>Desconto</span>
-                                            <span>- {formatCurrency(totais.valorDesconto)}</span>
-
+                                            <span>Desconto Total</span>
+                                            <span>- {formatCurrency(totais.descontoTotal)}</span>
                                         </div>
                                     )}
                                     <div className="d-flex justify-content-between mb-1">
@@ -603,3 +650,4 @@ function ReparacoesView() {
 }
 
 export default ReparacoesView
+

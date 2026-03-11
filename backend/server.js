@@ -341,8 +341,20 @@ async function generateRepairPDF(reparacaoId, pages = 'all') {
                         doc.moveTo(col.d, y - 4).lineTo(550, y - 4).dash(1, { space: 2 }).strokeColor("#cccccc").stroke().undash().strokeColor("black");
                     }
 
-                    // --- TOTAIS E RODAPÉ (Igual ao teu original) ---
+                    // --- MÃO DE OBRA (MOVIDO PARA AQUI) ---
                     const maoObra = Number(rep.mao_obra) || 0;
+                    if (maoObra > 0) {
+                        checkSpace(14);
+                        doc.font("Helvetica").fontSize(9);
+                        doc.text("Mão de Obra", col.d, y, { width: col.ref - col.d - 5, ellipsis: true });
+                        doc.text(formatMoney(maoObra), col.preco, y);
+                        doc.text(formatMoney(maoObra), col.total, y);
+                        
+                        y += 14;
+                        doc.moveTo(col.d, y - 4).lineTo(550, y - 4).dash(1, { space: 2 }).strokeColor("#cccccc").stroke().undash().strokeColor("black");
+                    }
+
+                    // --- TOTAIS E RODAPÉ (Igual ao teu original) ---
                     const totalGeral = totalPecas + maoObra;
                     const footerHeight = 75;
                     const totalsBlockHeight = 130;
@@ -354,15 +366,10 @@ async function generateRepairPDF(reparacaoId, pages = 'all') {
 
                     // Bloco de Totais
                     const labelX = 320; const valueX = 440;
-                    doc.font("Helvetica").fontSize(9);
-                    doc.text("Subtotal Peças:", labelX, y, { align: "right", width: 110 });
-                    doc.text(formatMoney(totalPecas), valueX, y, { align: "right", width: 100 });
-                    y += 14;
-                    doc.text("Mão de Obra:", labelX, y, { align: "right", width: 110 });
-                    doc.text(formatMoney(maoObra), valueX, y, { align: "right", width: 100 });
-                    y += 14;
-                    doc.moveTo(labelX + 20, y - 2).lineTo(550, y - 2).stroke();
-                    y += 5;
+                    
+                    // Ajuste de Y para compensar as linhas removidas (Subtotal e Mão de Obra) e manter o bloco no fundo
+                    y += 33; 
+
                     doc.fontSize(10).font("Helvetica-Bold");
                     doc.text("Total Líquido:", labelX, y, { align: "right", width: 110 });
                     doc.text(formatMoney(totalGeral), valueX, y, { align: "right", width: 100 });
