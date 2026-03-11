@@ -12,4 +12,7 @@ out/
 *.asar
 
 # Uploads
-uploads/
+uploads/-e 
+# Environment files
+*.env
+*.env.*
