@@ -3,228 +3,284 @@
 import { useState, useEffect, useMemo } from "react"
 import axios from "axios"
 import ClienteForm from "./ClienteForm"
-import "bootstrap/dist/css/bootstrap.min.css"
-import "bootstrap-icons/font/bootstrap-icons.css"
+import { cn } from "../lib/utils"
+import {
+  Plus,
+  Search,
+  User,
+  Phone,
+  Mail,
+  MapPin,
+  Trash2,
+  Pencil,
+  X,
+  AlertTriangle
+} from "lucide-react"
 
 const API_BASE_URL = "http://localhost:8082"
 
 function removerAcentos(str) {
-    if (!str) return ""
-    return str.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase()
+  if (!str) return ""
+  return str.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase()
 }
 
 function ClientesList() {
-    const [clientes, setClientes] = useState([])
-    const [loading, setLoading] = useState(true)
-    const [erro, setErro] = useState("")
+  const [clientes, setClientes] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [erro, setErro] = useState("")
+  const [mostrarForm, setMostrarForm] = useState(false)
+  const [clienteEditando, setClienteEditando] = useState(null)
+  const [busca, setBusca] = useState("")
+  const [clienteParaDeletar, setClienteParaDeletar] = useState(null)
 
-    // Estados de UI
-    const [mostrarForm, setMostrarForm] = useState(false)
-    const [clienteEditando, setClienteEditando] = useState(null)
-    const [busca, setBusca] = useState("")
-    const [clienteParaDeletar, setClienteParaDeletar] = useState(null)
+  useEffect(() => {
+    carregarClientes()
+  }, [])
 
-    useEffect(() => {
-        carregarClientes()
-    }, [])
-
-    const carregarClientes = async () => {
-        setLoading(true)
-        setErro("")
-        try {
-            const response = await axios.get(`${API_BASE_URL}/clientes`)
-            setClientes(response.data || [])
-        } catch (error) {
-            console.error("Erro ao carregar:", error)
-            setErro("Não foi possível carregar a lista de clientes.")
-        } finally {
-            setLoading(false)
-        }
+  const carregarClientes = async () => {
+    setLoading(true)
+    setErro("")
+    try {
+      const response = await axios.get(`${API_BASE_URL}/clientes`)
+      setClientes(response.data || [])
+    } catch (error) {
+      console.error("Erro ao carregar:", error)
+      setErro("Não foi possível carregar a lista de clientes.")
+    } finally {
+      setLoading(false)
     }
+  }
 
-    const handleSalvarCliente = (novoId) => {
-        setMostrarForm(false)
-        setClienteEditando(null)
-        carregarClientes() // Recarrega para garantir consistência
+  const handleSalvarCliente = () => {
+    setMostrarForm(false)
+    setClienteEditando(null)
+    carregarClientes()
+  }
+
+  const handleDeletarCliente = async () => {
+    if (!clienteParaDeletar) return
+    const id = clienteParaDeletar.id
+    setClientes(prev => prev.filter(c => c.id !== id))
+    setClienteParaDeletar(null)
+
+    try {
+      await axios.delete(`${API_BASE_URL}/clientes/${id}`)
+    } catch (error) {
+      console.error("Erro ao deletar:", error)
+      setErro("Erro ao excluir o cliente. Tente novamente.")
+      carregarClientes()
     }
+  }
 
-    const handleDeletarCliente = async () => {
-        if (!clienteParaDeletar) return
+  const clientesFiltrados = useMemo(() => {
+    if (!busca) return clientes
+    const termo = removerAcentos(busca)
+    return clientes.filter((cliente) =>
+      removerAcentos(cliente.nome).includes(termo) ||
+      removerAcentos(cliente.numero_interno).includes(termo) ||
+      removerAcentos(cliente.telefone).includes(termo) ||
+      removerAcentos(cliente.email).includes(termo)
+    )
+  }, [clientes, busca])
 
-        const id = clienteParaDeletar.id
-        // Otimisticamente remove da UI
-        setClientes(prev => prev.filter(c => c.id !== id))
-        setClienteParaDeletar(null)
-
-        try {
-            await axios.delete(`${API_BASE_URL}/clientes/${id}`)
-        } catch (error) {
-            console.error("Erro ao deletar:", error)
-            setErro("Erro ao excluir o cliente. Tente novamente.")
-            carregarClientes() // Reverte em caso de erro
-        }
-    }
-
-    // Filtragem Otimizada (Memoizada)
-    const clientesFiltrados = useMemo(() => {
-        if (!busca) return clientes
-
-        const termo = removerAcentos(busca)
-        return clientes.filter((cliente) =>
-            removerAcentos(cliente.nome).includes(termo) ||
-            removerAcentos(cliente.numero_interno).includes(termo) ||
-            removerAcentos(cliente.telefone).includes(termo) ||
-            removerAcentos(cliente.email).includes(termo)
-        )
-    }, [clientes, busca])
-
-    if (mostrarForm) {
-        return (
-            <div className="container mt-4">
-                <ClienteForm
-                    clienteId={clienteEditando?.id}
-                    onSave={handleSalvarCliente}
-                    onCancel={() => { setMostrarForm(false); setClienteEditando(null); }}
-                />
-            </div>
-        )
-    }
-
+  if (mostrarForm) {
     return (
-        <div className="container-fluid bg-light min-vh-100 py-4 px-4">
-            {/* Header */}
-            <div className="d-flex justify-content-between align-items-center mb-4">
-                <div>
-                    <h3 className="fw-bold text-dark mb-1">Clientes</h3>
-                    <p className="text-muted mb-0">Gerencie sua base de clientes e contatos.</p>
+      <div className="max-w-2xl mx-auto animate-fadeIn" data-testid="client-form-container">
+        <div className="mb-4">
+          <button
+            onClick={() => { setMostrarForm(false); setClienteEditando(null) }}
+            className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
+          >
+            <X className="w-4 h-4" />
+            Cancelar
+          </button>
+        </div>
+        <ClienteForm
+          clienteId={clienteEditando?.id}
+          onSave={handleSalvarCliente}
+          onCancel={() => { setMostrarForm(false); setClienteEditando(null) }}
+        />
+      </div>
+    )
+  }
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-[60vh]" data-testid="clients-loading">
+        <div className="flex flex-col items-center gap-3">
+          <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+          <p className="text-muted-foreground text-sm">A carregar clientes...</p>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-6 animate-fadeIn" data-testid="clients-list">
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div>
+          <h1 className="text-3xl font-heading font-bold text-foreground">Clientes</h1>
+          <p className="text-muted-foreground mt-1">Gestão da base de clientes</p>
+        </div>
+        <button
+          onClick={() => { setClienteEditando(null); setMostrarForm(true) }}
+          className="flex items-center gap-2 px-4 py-2.5 bg-primary text-primary-foreground rounded-md text-sm font-medium hover:bg-primary/90 transition-colors"
+          data-testid="new-client"
+        >
+          <Plus className="w-4 h-4" />
+          Novo Cliente
+        </button>
+      </div>
+
+      {/* Search & Stats */}
+      <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
+        <div className="relative w-full sm:max-w-md">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+          <input
+            type="text"
+            placeholder="Pesquisar por nome, telefone, email..."
+            className="w-full pl-10 pr-4 py-2.5 bg-card border border-border rounded-md text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors"
+            value={busca}
+            onChange={(e) => setBusca(e.target.value)}
+            data-testid="search-clients"
+          />
+        </div>
+        <span className="px-3 py-1.5 bg-muted rounded-md text-sm text-muted-foreground">
+          {clientesFiltrados.length} clientes encontrados
+        </span>
+      </div>
+
+      {erro && (
+        <div className="flex items-center gap-2 p-4 bg-destructive/10 border border-destructive/30 rounded-md text-destructive">
+          <AlertTriangle className="w-4 h-4" />
+          {erro}
+        </div>
+      )}
+
+      {/* Clients Grid */}
+      {clientesFiltrados.length === 0 ? (
+        <div className="flex flex-col items-center justify-center py-16 bg-card border border-border rounded-lg">
+          <User className="w-16 h-16 text-muted-foreground/30 mb-4" />
+          <h3 className="text-lg font-medium text-foreground mb-1">Nenhum cliente encontrado</h3>
+          <p className="text-muted-foreground text-center max-w-md">
+            {busca ? "Tente uma pesquisa diferente." : "Adicione o primeiro cliente para começar."}
+          </p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {clientesFiltrados.map((cliente) => (
+            <div
+              key={cliente.id}
+              className="group bg-card border border-border rounded-lg p-5 hover:border-primary/30 hover:shadow-md transition-all cursor-pointer"
+              onClick={() => { setClienteEditando(cliente); setMostrarForm(true) }}
+              data-testid={`client-card-${cliente.id}`}
+            >
+              {/* Header */}
+              <div className="flex items-start justify-between mb-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-lg bg-primary/10 text-primary flex items-center justify-center font-heading font-bold text-lg">
+                    {cliente.nome.charAt(0).toUpperCase()}
+                  </div>
+                  <div>
+                    <h3 className="font-medium text-foreground group-hover:text-primary transition-colors">
+                      {cliente.nome}
+                    </h3>
+                    {cliente.numero_interno && (
+                      <p className="text-xs text-muted-foreground font-mono">
+                        ID: {cliente.numero_interno}
+                      </p>
+                    )}
+                  </div>
                 </div>
                 <button
-                    className="btn btn-primary shadow-sm d-flex align-items-center gap-2"
-                    onClick={() => { setClienteEditando(null); setMostrarForm(true); }}
+                  onClick={(e) => { e.stopPropagation(); setClienteParaDeletar(cliente) }}
+                  className="p-2 rounded-md opacity-0 group-hover:opacity-100 hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-all"
+                  title="Excluir"
+                  data-testid={`delete-client-${cliente.id}`}
                 >
-                    <i className="bi bi-person-plus-fill"></i>
-                    <span>Novo Cliente</span>
+                  <Trash2 className="w-4 h-4" />
                 </button>
+              </div>
+
+              {/* Contact Info */}
+              <div className="space-y-2">
+                {cliente.telefone && (
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <Phone className="w-4 h-4" />
+                    <span>{cliente.telefone}</span>
+                  </div>
+                )}
+                {cliente.email && (
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <Mail className="w-4 h-4" />
+                    <span className="truncate">{cliente.email}</span>
+                  </div>
+                )}
+                {cliente.nif && (
+                  <div className="flex items-center gap-2 text-sm">
+                    <span className="text-muted-foreground">NIF:</span>
+                    <span className="font-mono text-foreground">{cliente.nif}</span>
+                  </div>
+                )}
+              </div>
+
+              {/* Address */}
+              {cliente.morada && (
+                <div className="mt-3 pt-3 border-t border-border">
+                  <div className="flex items-start gap-2 text-sm text-muted-foreground">
+                    <MapPin className="w-4 h-4 mt-0.5 flex-shrink-0" />
+                    <span className="line-clamp-2">{cliente.morada}</span>
+                  </div>
+                </div>
+              )}
             </div>
-
-            {/* Barra de Ferramentas */}
-            <div className="card border-0 shadow-sm rounded-3 mb-4">
-                <div className="card-body p-3">
-                    <div className="row align-items-center">
-                        <div className="col-md-6">
-                            <div className="input-group">
-                                <span className="input-group-text bg-white border-end-0 text-muted">
-                                    <i className="bi bi-search"></i>
-                                </span>
-                                <input
-                                    type="text"
-                                    className="form-control border-start-0 ps-0 shadow-none"
-                                    placeholder="Pesquisar por nome, telefone, email..."
-                                    value={busca}
-                                    onChange={(e) => setBusca(e.target.value)}
-                                />
-                            </div>
-                        </div>
-                        <div className="col-md-6 text-md-end mt-3 mt-md-0">
-                            <span className="badge bg-light text-dark border px-3 py-2">
-                                {clientesFiltrados.length} registos encontrados
-                            </span>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            {erro && <div className="alert alert-danger shadow-sm">{erro}</div>}
-
-            {loading ? (
-                <div className="text-center py-5">
-                    <div className="spinner-border text-primary" role="status"></div>
-                </div>
-            ) : clientesFiltrados.length === 0 ? (
-                <div className="text-center py-5">
-                    <div className="mb-3 text-muted opacity-25"><i className="bi bi-people fs-1"></i></div>
-                    <h5 className="text-muted">Nenhum cliente encontrado</h5>
-                    <p className="small text-muted">Tente uma pesquisa diferente ou adicione um novo cliente.</p>
-                </div>
-            ) : (
-                <div className="card border-0 shadow-sm rounded-3 overflow-hidden">
-                    <div className="table-responsive">
-                        <table className="table table-hover mb-0 align-middle">
-                            <thead className="bg-light text-secondary small text-uppercase">
-                                <tr>
-                                    <th className="ps-4 py-3">Nome</th>
-                                    <th>Contacto</th>
-                                    <th>NIF</th>
-                                    <th className="text-end pe-4">Ações</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {clientesFiltrados.map((cliente) => (
-                                    <tr key={cliente.id} className="cursor-pointer" onClick={() => { setClienteEditando(cliente); setMostrarForm(true); }}>
-                                        <td className="ps-4 py-3">
-                                            <div className="d-flex align-items-center">
-                                                <div className="avatar me-3 bg-primary bg-opacity-10 text-primary rounded-circle d-flex align-items-center justify-content-center fw-bold" style={{ width: '40px', height: '40px' }}>
-                                                    {cliente.nome.charAt(0).toUpperCase()}
-                                                </div>
-                                                <div>
-                                                    <div className="fw-bold text-dark">{cliente.nome}</div>
-                                                    {cliente.numero_interno && <small className="text-muted">ID: {cliente.numero_interno}</small>}
-                                                </div>
-                                            </div>
-                                        </td>
-                                        <td>
-                                            <div className="d-flex flex-column small">
-                                                {cliente.telefone && (
-                                                    <span className="text-dark mb-1"><i className="bi bi-telephone me-2 text-muted"></i>{cliente.telefone}</span>
-                                                )}
-                                                {cliente.email && (
-                                                    <span className="text-muted"><i className="bi bi-envelope me-2"></i>{cliente.email}</span>
-                                                )}
-                                            </div>
-                                        </td>
-                                        <td>
-                                            {cliente.nif ? <span className="font-monospace text-dark">{cliente.nif}</span> : <span className="text-muted">-</span>}
-                                        </td>
-                                        <td className="text-end pe-4">
-                                            <button
-                                                className="btn btn-sm btn-light text-danger border ms-2"
-                                                onClick={(e) => { e.stopPropagation(); setClienteParaDeletar(cliente); }}
-                                                title="Excluir"
-                                            >
-                                                <i className="bi bi-trash"></i>
-                                            </button>
-                                        </td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            )}
-
-            {/* Modal de Confirmação (Bootstrap Modal Nativo Simplificado) */}
-            {clienteParaDeletar && (
-                <div className="modal fade show d-block" style={{ backgroundColor: 'rgba(0,0,0,0.5)' }} tabIndex="-1">
-                    <div className="modal-dialog modal-dialog-centered">
-                        <div className="modal-content border-0 shadow">
-                            <div className="modal-body text-center p-4">
-                                <div className="mb-3 text-danger"><i className="bi bi-exclamation-circle fs-1"></i></div>
-                                <h5 className="fw-bold">Excluir Cliente?</h5>
-                                <p className="text-muted">
-                                    Tem a certeza que deseja remover <strong>{clienteParaDeletar.nome}</strong>? <br />
-                                    Esta ação não pode ser desfeita.
-                                </p>
-                                <div className="d-flex justify-content-center gap-2 mt-4">
-                                    <button className="btn btn-light px-4" onClick={() => setClienteParaDeletar(null)}>Cancelar</button>
-                                    <button className="btn btn-danger px-4" onClick={handleDeletarCliente}>Sim, excluir</button>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            )}
+          ))}
         </div>
-    )
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {clienteParaDeletar && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" data-testid="delete-modal">
+          <div 
+            className="absolute inset-0 bg-background/80 backdrop-blur-sm"
+            onClick={() => setClienteParaDeletar(null)}
+          />
+          <div className="relative w-full max-w-md bg-card border border-border rounded-lg shadow-xl p-6 animate-fadeIn">
+            <div className="flex flex-col items-center text-center">
+              <div className="w-12 h-12 rounded-full bg-destructive/10 text-destructive flex items-center justify-center mb-4">
+                <AlertTriangle className="w-6 h-6" />
+              </div>
+              <h3 className="text-lg font-heading font-bold text-foreground mb-2">
+                Excluir Cliente?
+              </h3>
+              <p className="text-muted-foreground mb-6">
+                Tem a certeza que deseja remover <strong className="text-foreground">{clienteParaDeletar.nome}</strong>?
+                <br />
+                <span className="text-sm">Esta ação não pode ser desfeita.</span>
+              </p>
+              <div className="flex items-center gap-3 w-full">
+                <button
+                  onClick={() => setClienteParaDeletar(null)}
+                  className="flex-1 px-4 py-2.5 bg-muted text-foreground rounded-md text-sm font-medium hover:bg-muted/80 transition-colors"
+                  data-testid="cancel-delete"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={handleDeletarCliente}
+                  className="flex-1 px-4 py-2.5 bg-destructive text-destructive-foreground rounded-md text-sm font-medium hover:bg-destructive/90 transition-colors"
+                  data-testid="confirm-delete"
+                >
+                  Sim, excluir
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
 }
 
 export default ClientesList

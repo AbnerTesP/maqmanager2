@@ -6,454 +6,481 @@ import DataTable from "react-data-table-component"
 import { useNavigate } from "react-router-dom"
 import jsPDF from "jspdf"
 import autoTable from "jspdf-autotable"
-import "bootstrap/dist/css/bootstrap.min.css"
-import "bootstrap-icons/font/bootstrap-icons.css"
+import { cn } from "../lib/utils"
+import {
+  Plus,
+  Search,
+  FileDown,
+  Pencil,
+  Trash2,
+  Clock,
+  CheckCircle,
+  Package,
+  Folder,
+  Filter,
+  XCircle
+} from "lucide-react"
 
-// --- CONSTANTES E UTILITÁRIOS ---
 const API_BASE_URL = "http://localhost:8082"
 
 const customStyles = {
-    headRow: {
-        style: {
-            backgroundColor: "#f9fafb",
-            borderBottomWidth: "1px",
-            borderBottomColor: "#e5e7eb",
-            minHeight: "50px",
-        },
+  table: {
+    style: {
+      backgroundColor: 'transparent',
     },
-    headCells: {
-        style: {
-            color: "#6b7280",
-            fontSize: "0.75rem",
-            fontWeight: "700",
-            textTransform: "uppercase",
-            letterSpacing: "0.05em",
-        },
+  },
+  headRow: {
+    style: {
+      backgroundColor: "rgb(var(--muted))",
+      borderBottomWidth: "1px",
+      borderBottomColor: "rgb(var(--border))",
+      minHeight: "48px",
     },
-    rows: {
-        style: {
-            minHeight: "60px",
-            "&:hover": {
-                backgroundColor: "#f3f4f6",
-                cursor: "pointer",
-                transition: "all 0.2s",
-            },
-        },
+  },
+  headCells: {
+    style: {
+      color: "rgb(var(--muted-foreground))",
+      fontSize: "0.75rem",
+      fontWeight: "600",
+      textTransform: "uppercase",
+      letterSpacing: "0.05em",
+      fontFamily: "Barlow Condensed, sans-serif",
     },
-    pagination: {
-        style: {
-            borderTop: "1px solid #e5e7eb",
-        },
+  },
+  rows: {
+    style: {
+      minHeight: "56px",
+      backgroundColor: "rgb(var(--card))",
+      borderBottomColor: "rgb(var(--border))",
+      "&:hover": {
+        backgroundColor: "rgb(var(--muted) / 0.5)",
+        cursor: "pointer",
+      },
+      transition: "background-color 150ms ease",
     },
+  },
+  cells: {
+    style: {
+      color: "rgb(var(--foreground))",
+    },
+  },
+  pagination: {
+    style: {
+      backgroundColor: "rgb(var(--card))",
+      borderTop: "1px solid rgb(var(--border))",
+      color: "rgb(var(--foreground))",
+    },
+    pageButtonsStyle: {
+      color: "rgb(var(--foreground))",
+      fill: "rgb(var(--foreground))",
+      "&:disabled": {
+        color: "rgb(var(--muted-foreground))",
+        fill: "rgb(var(--muted-foreground))",
+      },
+      "&:hover:not(:disabled)": {
+        backgroundColor: "rgb(var(--muted))",
+      },
+    },
+  },
+  noData: {
+    style: {
+      backgroundColor: "rgb(var(--card))",
+      color: "rgb(var(--muted-foreground))",
+    },
+  },
 }
 
 function removerAcentos(str) {
-    if (!str) return ""
-    return str.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase()
+  if (!str) return ""
+  return str.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase()
 }
 
 function ReparacoesView() {
-    const [reparacoes, setReparacoes] = useState([])
-    const [alarmes, setAlarmes] = useState([])
-    const [centros, setCentros] = useState([])
-    const [loading, setLoading] = useState(true)
-    const navigate = useNavigate()
+  const [reparacoes, setReparacoes] = useState([])
+  const [centros, setCentros] = useState([])
+  const [loading, setLoading] = useState(true)
+  const navigate = useNavigate()
 
-    // -- Estados persistidos para filtros e paginação --
-    const [searchTerm, setSearchTerm] = useState(() => sessionStorage.getItem("reparacoesSearchTerm") || "")
-    const [filterStatus, setFilterStatus] = useState(() => sessionStorage.getItem("reparacoesFilterStatus") || "all")
-    const [selectedCentro, setSelectedCentro] = useState(() => sessionStorage.getItem("reparacoesSelectedCentro") || "all")
-    const [currentPage, setCurrentPage] = useState(() => Number(sessionStorage.getItem("reparacoesCurrentPage")) || 1)
-    const [perPage, setPerPage] = useState(() => Number(sessionStorage.getItem("reparacoesPerPage")) || 10)
+  const [searchTerm, setSearchTerm] = useState(() => sessionStorage.getItem("reparacoesSearchTerm") || "")
+  const [filterStatus, setFilterStatus] = useState(() => sessionStorage.getItem("reparacoesFilterStatus") || "all")
+  const [selectedCentro, setSelectedCentro] = useState(() => sessionStorage.getItem("reparacoesSelectedCentro") || "all")
+  const [currentPage, setCurrentPage] = useState(() => Number(sessionStorage.getItem("reparacoesCurrentPage")) || 1)
+  const [perPage, setPerPage] = useState(() => Number(sessionStorage.getItem("reparacoesPerPage")) || 10)
 
-    // Efeitos para guardar o estado na sessionStorage
-    useEffect(() => {
-        sessionStorage.setItem("reparacoesSearchTerm", searchTerm)
-        sessionStorage.setItem("reparacoesFilterStatus", filterStatus)
-        sessionStorage.setItem("reparacoesSelectedCentro", selectedCentro)
-    }, [searchTerm, filterStatus, selectedCentro])
+  useEffect(() => {
+    sessionStorage.setItem("reparacoesSearchTerm", searchTerm)
+    sessionStorage.setItem("reparacoesFilterStatus", filterStatus)
+    sessionStorage.setItem("reparacoesSelectedCentro", selectedCentro)
+  }, [searchTerm, filterStatus, selectedCentro])
 
-    useEffect(() => {
-        sessionStorage.setItem("reparacoesCurrentPage", currentPage)
-    }, [currentPage])
+  useEffect(() => {
+    sessionStorage.setItem("reparacoesCurrentPage", currentPage)
+  }, [currentPage])
 
-    useEffect(() => {
-        sessionStorage.setItem("reparacoesPerPage", perPage)
-    }, [perPage])
+  useEffect(() => {
+    sessionStorage.setItem("reparacoesPerPage", perPage)
+  }, [perPage])
 
-    useEffect(() => {
-        const loadData = async () => {
-            setLoading(true)
-            try {
-                const [repResponse, alarmResponse, centrosResponse] = await Promise.all([
-                    axios.get(`${API_BASE_URL}/reparacoes`),
-                    axios.get(`${API_BASE_URL}/alarmes/resumo`),
-                    axios.get(`${API_BASE_URL}/centros`)
-                ])
-                setReparacoes(Array.isArray(repResponse.data) ? repResponse.data : [])
-                setAlarmes(alarmResponse.data.alarmes || [])
-                setCentros(Array.isArray(centrosResponse.data) ? centrosResponse.data : [])
-            } catch (error) {
-                console.error("Erro ao carregar dados:", error)
-            } finally {
-                setLoading(false)
-            }
-        }
-        loadData()
-    }, [])
+  useEffect(() => {
+    const loadData = async () => {
+      setLoading(true)
+      try {
+        const [repResponse, centrosResponse] = await Promise.all([
+          axios.get(`${API_BASE_URL}/reparacoes`),
+          axios.get(`${API_BASE_URL}/centros`)
+        ])
+        setReparacoes(Array.isArray(repResponse.data) ? repResponse.data : [])
+        setCentros(Array.isArray(centrosResponse.data) ? centrosResponse.data : [])
+      } catch (error) {
+        console.error("Erro ao carregar dados:", error)
+      } finally {
+        setLoading(false)
+      }
+    }
+    loadData()
+  }, [])
 
-    const handleDelete = useCallback(async (row, e) => {
-        e.stopPropagation();
-        if (!window.confirm("Tem certeza que deseja deletar esta reparação?")) return
+  const handleDelete = useCallback(async (row, e) => {
+    e.stopPropagation()
+    if (!window.confirm("Tem certeza que deseja deletar esta reparação?")) return
 
-        try {
-            await axios.delete(`${API_BASE_URL}/reparacoes/${row.id}`)
-            setReparacoes(prev => prev.filter(r => r.id !== row.id))
-            alert("Reparação deletada com sucesso!")
-        } catch (error) {
-            alert("Erro ao deletar a reparação")
-        }
-    }, [])
+    try {
+      await axios.delete(`${API_BASE_URL}/reparacoes/${row.id}`)
+      setReparacoes(prev => prev.filter(r => r.id !== row.id))
+    } catch (error) {
+      alert("Erro ao deletar a reparação")
+    }
+  }, [])
 
-    const getStatus = useCallback((reparacao) => {
-        // Prioridade às datas para consistência com estatísticas e ciclo de vida
-        if (reparacao.datasaida) return "entregue"
-        if (reparacao.dataconclusao) return "pronta"
+  const getStatus = useCallback((reparacao) => {
+    if (reparacao.datasaida) return "entregue"
+    if (reparacao.dataconclusao) return "pronta"
+    const statusRep = reparacao.estadoreparacao?.toLowerCase() || ""
+    const statusOrc = reparacao.estadoorcamento?.toLowerCase() || ""
+    if (statusRep.includes("sem reparação") || statusOrc.includes("recusado")) return "sem_reparacao"
+    if (reparacao.dataentrega) return "andamento"
+    return "pendente"
+  }, [])
 
-        const statusRep = reparacao.estadoreparacao?.toLowerCase() || ""
-        const statusOrc = reparacao.estadoorcamento?.toLowerCase() || ""
+  const filteredReparacoes = useMemo(() => {
+    const termoLimpo = removerAcentos(searchTerm)
+    return reparacoes.filter((reparacao) => {
+      if (filterStatus !== "all" && getStatus(reparacao) !== filterStatus) return false
+      if (selectedCentro !== "all" && reparacao.nomecentro !== selectedCentro) return false
+      if (!termoLimpo) return true
+      return (
+        removerAcentos(reparacao.nomemaquina).includes(termoLimpo) ||
+        removerAcentos(reparacao.nomecentro).includes(termoLimpo) ||
+        removerAcentos(reparacao.cliente_nome).includes(termoLimpo) ||
+        removerAcentos(reparacao.numreparacao?.toString()).includes(termoLimpo)
+      )
+    }).sort((a, b) => {
+      const numA = a.numreparacao ? String(a.numreparacao) : ""
+      const numB = b.numreparacao ? String(b.numreparacao) : ""
+      return numB.localeCompare(numA, undefined, { numeric: true })
+    })
+  }, [reparacoes, searchTerm, filterStatus, selectedCentro, getStatus])
 
-        if (statusRep.includes("sem reparação") || statusOrc.includes("recusado")) return "sem_reparacao"
-        if (reparacao.dataentrega) return "andamento"
-        return "pendente"
-    }, [])
+  const stats = useMemo(() => {
+    const initialStats = { total: 0, andamento: 0, pronta: 0, entregue: 0 }
+    return reparacoes.reduce((acc, curr) => {
+      acc.total++
+      if (curr.datasaida) acc.entregue++
+      else if (curr.dataconclusao) acc.pronta++
+      else acc.andamento++
+      return acc
+    }, initialStats)
+  }, [reparacoes])
 
-    const filteredReparacoes = useMemo(() => {
-        const termoLimpo = removerAcentos(searchTerm)
-        return reparacoes.filter((reparacao) => {
-            if (filterStatus !== "all" && getStatus(reparacao) !== filterStatus) return false
-            if (selectedCentro !== "all" && reparacao.nomecentro !== selectedCentro) return false
-            if (!termoLimpo) return true
-            return (
-                removerAcentos(reparacao.nomemaquina).includes(termoLimpo) ||
-                removerAcentos(reparacao.nomecentro).includes(termoLimpo) ||
-                removerAcentos(reparacao.cliente_nome).includes(termoLimpo) ||
-                removerAcentos(reparacao.numreparacao?.toString()).includes(termoLimpo)
-            )
-        }).sort((a, b) => {
-            const numA = a.numreparacao ? String(a.numreparacao) : ""
-            const numB = b.numreparacao ? String(b.numreparacao) : ""
-            return numB.localeCompare(numA, undefined, { numeric: true })
-        })
-    }, [reparacoes, searchTerm, filterStatus, selectedCentro, getStatus])
+  const statCardsConfig = [
+    { value: stats.andamento, label: "Em Andamento", icon: Clock, color: "orange" },
+    { value: stats.pronta, label: "Prontas", icon: CheckCircle, color: "info" },
+    { value: stats.entregue, label: "Entregues", icon: Package, color: "success" },
+    { value: stats.total, label: "Total", icon: Folder, color: "primary" },
+  ]
 
-    const stats = useMemo(() => {
-        const initialStats = { total: 0, andamento: 0, pronta: 0, entregue: 0 }
-        return reparacoes.reduce((acc, curr) => {
-            acc.total++
+  const statusConfig = {
+    entregue: { label: "Entregue", class: "bg-success/10 text-success border-success/30" },
+    pronta: { label: "Pronta", class: "bg-info/10 text-info border-info/30" },
+    andamento: { label: "Em Andamento", class: "bg-orange/10 text-orange border-orange/30" },
+    pendente: { label: "Pendente", class: "bg-muted text-muted-foreground border-border" },
+    sem_reparacao: { label: "Sem Reparação", class: "bg-destructive/10 text-destructive border-destructive/30" },
+  }
 
-            if (curr.datasaida) {
-                acc.entregue++
-            } else if (curr.dataconclusao) {
-                acc.pronta++
-            } else {
-                // Tudo o resto conta como em andamento para fechar a conta (Total = Entregue + Pronta + Andamento)
-                acc.andamento++
-            }
-            return acc
-        }, initialStats)
-    }, [reparacoes])
-
-    const statCardsConfig = [
-        { title: stats.andamento, label: "Em Andamento", icon: "bi-hourglass-split", color: "text-warning", bg: "bg-warning" },
-        { title: stats.pronta, label: "Prontas", icon: "bi-check-circle-fill", color: "text-info", bg: "bg-info" },
-        { title: stats.entregue, label: "Entregues", icon: "bi-box-seam-fill", color: "text-success", bg: "bg-success" },
-        { title: stats.total, label: "Total Registado", icon: "bi-folder-fill", color: "text-primary", bg: "bg-primary" },
-    ]
-
-    const getStatusBadge = (status) => {
-        const styles = {
-            entregue: "bg-success bg-opacity-10 text-success border-success",
-            pronta: "bg-info bg-opacity-10 text-info border-info",
-            andamento: "bg-warning bg-opacity-10 text-warning border-warning",
-            pendente: "bg-secondary bg-opacity-10 text-secondary border-secondary",
-            sem_reparacao: "bg-danger bg-opacity-10 text-danger border-danger",
-        }
-
-        const labels = {
-            entregue: "Entregue", pronta: "Pronta", andamento: "Em Andamento",
-            pendente: "Pendente", sem_reparacao: "Sem Reparação"
-        }
-
-        const styleClass = styles[status] || styles.pendente
-
+  const columns = useMemo(() => [
+    {
+      name: "Status",
+      selector: row => getStatus(row),
+      cell: row => {
+        const status = getStatus(row)
+        const config = statusConfig[status] || statusConfig.pendente
         return (
-            <span className={`badge rounded-pill border ${styleClass} px-3 py-2 fw-normal`}>
-                {labels[status] || "Pendente"}
-            </span>
+          <span className={cn("px-2.5 py-1 text-xs font-medium rounded-md border", config.class)}>
+            {config.label}
+          </span>
         )
-    }
-
-    const columns = useMemo(() => [
-        {
-            name: "Status",
-            selector: row => getStatus(row),
-            cell: row => getStatusBadge(getStatus(row)),
-            sortable: true,
-            width: "140px",
-        },
-        { name: "Nº Rep.", selector: row => row.numreparacao, sortable: true, width: "100px", style: { fontWeight: 'bold', color: '#374151' } },
-        { name: "Cliente", selector: row => row.cliente_nome, sortable: true, wrap: true },
-        { name: "Máquina", selector: row => row.nomemaquina, sortable: true, wrap: true },
-        { name: "Centro", selector: row => row.nomecentro, sortable: true, hide: "sm" },
-        {
-            name: "Entrada",
-            selector: row => row.dataentrega,
-            cell: row => <span className="text-secondary fw-medium ">{row.dataentrega ? new Date(row.dataentrega).toLocaleDateString() : "-"}</span>,
-            sortable: true,
-            width: "110px"
-        },
-        // --- NOVA COLUNA DE CONCLUSÃO ADICIONADA AQUI ---
-        {
-            name: "Conclusão",
-            selector: row => row.dataconclusao,
-            cell: row => row.dataconclusao ? <span className="text-secondary fw-medium">{new Date(row.dataconclusao).toLocaleDateString()}</span> : <span className="text-muted small">-</span>,
-            sortable: true,
-            width: "110px"
-        },
-        // -----------------------------------------------
-        {
-            name: "Ações",
-            width: "130px",
-            cell: (row) => (
-                <div className="d-flex gap-2">
-                    <button onClick={(e) => { e.stopPropagation(); navigate(`/reparacoes/edit/${row.id}`) }}
-                        className="btn btn-sm btn-light text-primary border hover-shadow" title="Editar">
-                        <i className="bi bi-pencil-square"></i>
-                    </button>
-                    <button onClick={(e) => handleDelete(row, e)}
-                        className="btn btn-sm btn-light text-danger border hover-shadow" title="Deletar">
-                        <i className="bi bi-trash"></i>
-                    </button>
-                </div>
-            ),
-            ignoreRowClick: true,
-        },
-    ], [handleDelete, navigate, getStatus])
-
-    const handlePageChange = (page) => {
-        setCurrentPage(page)
-    }
-
-    const handlePerPageChange = (newPerPage) => {
-        setPerPage(newPerPage)
-    }
-
-    const handleRowClick = (row) => {
-        navigate(`/reparacoes/view/${row.id}`)
-    }
-
-    // NOVO: Função para exportar PDF
-    const handleExportPDF = () => {
-        const doc = new jsPDF()
-
-        const centerName = selectedCentro === 'all' ? 'Todos os Centros' : selectedCentro
-
-        // Título e Metadados
-        doc.setFontSize(16)
-        doc.text(`Listagem de Reparações - ${centerName}`, 14, 15)
-
-        doc.setFontSize(10)
-        doc.setTextColor(100)
-        doc.text(`Gerado em: ${new Date().toLocaleDateString()} às ${new Date().toLocaleTimeString()}`, 14, 22)
-
-        if (filterStatus !== 'all') {
-            const labels = {
-                entregue: "Entregue", pronta: "Pronta", andamento: "Em Andamento",
-                pendente: "Pendente", sem_reparacao: "Sem Reparação"
-            }
-            doc.text(`Filtro de Status: ${labels[filterStatus] || filterStatus}`, 14, 27)
-        }
-
-        // Configuração da Tabela
-        const tableColumn = ["Nº Rep", "Cliente", "Máquina", "Centro", "Entrada", "Conclusão", "Status"]
-        const tableRows = []
-
-        const statusLabels = {
-            entregue: "Entregue", pronta: "Pronta", andamento: "Em Andamento",
-            pendente: "Pendente", sem_reparacao: "Sem Reparação"
-        }
-
-        // Usar filteredReparacoes garante que o PDF reflete exatamente o que está na tela (filtros de centro, status e busca)
-        filteredReparacoes.forEach(reparacao => {
-            const statusId = getStatus(reparacao)
-            const statusLabel = statusLabels[statusId] || "Pendente"
-            const repairData = [
-                reparacao.numreparacao || "",
-                reparacao.cliente_nome || "",
-                reparacao.nomemaquina || "",
-                reparacao.nomecentro || "",
-                reparacao.dataentrega ? new Date(reparacao.dataentrega).toLocaleDateString('pt-PT') : "-",
-                reparacao.dataconclusao ? new Date(reparacao.dataconclusao).toLocaleDateString('pt-PT') : "-",
-                statusLabel
-            ]
-            tableRows.push(repairData)
-        })
-
-        autoTable(doc, {
-            head: [tableColumn],
-            body: tableRows,
-            startY: filterStatus !== 'all' ? 32 : 28,
-            styles: { fontSize: 8 },
-            headStyles: { fillColor: [13, 110, 253] }, // Cor primária do Bootstrap
-            alternateRowStyles: { fillColor: [245, 245, 245] }
-        })
-
-        doc.save(`reparacoes_${centerName.replace(/ /g, "_").toLowerCase()}.pdf`)
-    }
-
-    if (loading) {
-        return (
-            <div className="d-flex justify-content-center align-items-center vh-100 bg-light">
-                <div className="spinner-border text-primary" style={{ width: "3rem", height: "3rem" }} role="status">
-                    <span className="visually-hidden">Carregando...</span>
-                </div>
-            </div>
-        )
-    }
-
-    return (
-        <div className="container-fluid bg-light min-vh-100 py-4 px-4">
-
-            {/* Cabeçalho Principal */}
-            <div className="d-flex justify-content-between align-items-center mb-5">
-                <div>
-                    <h3 className="fw-bold text-dark mb-1">Gestão de Reparações</h3>
-                    <p className="text-muted mb-0">Gerencie todas as manutenções e estados em tempo real.</p>
-                </div>
-                {/* NOVO: Botões agrupados */}
-                <div className="d-flex gap-2">
-                    <button className="btn btn-outline-danger btn-lg shadow-sm d-flex align-items-center gap-2" onClick={handleExportPDF}>
-                        <i className="bi bi-file-earmark-pdf"></i>
-                        <span>PDF</span>
-                    </button>
-                    <button className="btn btn-primary btn-lg shadow-sm d-flex align-items-center gap-2" onClick={() => navigate("/reparacoes/registo")}>
-                        <i className="bi bi-plus-lg"></i>
-                        <span>Nova Reparação</span>
-                    </button>
-                </div>
-            </div>
-
-            {/* Cards de Estatísticas */}
-            <div className="row mb-5 g-4">
-                {statCardsConfig.map((card, index) => (
-                    <div key={index} className="col-xl-3 col-md-6">
-                        <div className="card border-0 shadow-sm h-100 overflow-hidden">
-                            <div className="card-body p-4 d-flex align-items-center justify-content-between">
-                                <div>
-                                    <p className="text-muted text-uppercase fw-semibold small mb-1">{card.label}</p>
-                                    <h2 className="fw-bold mb-0 text-dark">{card.title}</h2>
-                                </div>
-                                <div className={`rounded-circle p-3 d-flex align-items-center justify-content-center ${card.bg} bg-opacity-10`}>
-                                    <i className={`bi ${card.icon} fs-3 ${card.color}`}></i>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                ))}
-            </div>
-
-            {/* Área da Tabela */}
-            <div className="card border-0 shadow-sm rounded-3">
-                <div className="card-body p-4">
-
-                    {/* Barra de Ferramentas (Filtros) */}
-                    <div className="row g-3 mb-4 align-items-center">
-                        <div className="col-md-6">
-                            <div className="input-group input-group-lg border rounded-3 overflow-hidden">
-                                <span className="input-group-text bg-white border-0 pe-0"><i className="bi bi-search text-muted"></i></span>
-                                <input
-                                    type="text"
-                                    className="form-control border-0 shadow-none ps-3"
-                                    placeholder="Buscar por cliente, máquina ou número..."
-                                    value={searchTerm}
-                                    onChange={(e) => setSearchTerm(e.target.value)}
-                                />
-                            </div>
-                        </div>
-
-                        {/* NOVO: Dropdown de Centros */}
-                        <div className="col-md-3">
-                            <select
-                                className="form-select form-select-lg border-0 bg-light"
-                                value={selectedCentro}
-                                onChange={(e) => setSelectedCentro(e.target.value)}
-                                style={{ cursor: 'pointer' }}
-                            >
-                                <option value="all">Todos os Centros</option>
-                                {centros.map(c => (
-                                    <option key={c.id} value={c.nome}>{c.nome}</option>
-                                ))}
-                            </select>
-                        </div>
-
-                        <div className="col-md-3 ms-auto">
-                            <select
-                                className="form-select form-select-lg border-0 bg-light"
-                                value={filterStatus}
-                                onChange={(e) => setFilterStatus(e.target.value)}
-                                style={{ cursor: 'pointer' }}
-                            >
-                                <option value="all">Todos os Status</option>
-                                <option value="pendente">Pendente</option>
-                                <option value="andamento">Em Andamento</option>
-                                <option value="pronta">Pronta</option>
-                                <option value="entregue">Entregue</option>
-                                <option value="sem_reparacao">Sem Reparação</option>
-                            </select>
-                        </div>
-                    </div>
-
-                    {/* Data Table */}
-                    <div className="rounded-3 overflow-hidden border">
-                        <DataTable
-                            columns={columns}
-                            data={filteredReparacoes}
-                            pagination
-                            paginationPerPage={perPage}
-                            paginationRowsPerPageOptions={[10, 15, 20, 30]}
-                            paginationDefaultPage={currentPage}
-                            onChangePage={handlePageChange}
-                            onChangeRowsPerPage={handlePerPageChange}
-                            highlightOnHover
-                            pointerOnHover
-                            onRowClicked={handleRowClick}
-                            responsive
-                            customStyles={customStyles}
-                            noDataComponent={
-                                <div className="text-center py-5">
-                                    <div className="mb-3 text-muted opacity-25">
-                                        <i className="bi bi-inbox fs-1"></i>
-                                    </div>
-                                    <h6 className="text-muted">Nenhuma reparação encontrada.</h6>
-                                </div>
-                            }
-                        />
-                    </div>
-                </div>
-            </div>
-
-            <style>{`
-                .hover-shadow:hover {
-                    transform: translateY(-1px);
-                    box-shadow: 0 .125rem .25rem rgba(0,0,0,.075)!important;
-                }
-                .hover-shadow {
-                    transition: all 0.2s;
-                }
-            `}</style>
+      },
+      sortable: true,
+      width: "140px",
+    },
+    {
+      name: "Nº Rep.",
+      selector: row => row.numreparacao,
+      cell: row => <span className="font-mono font-medium text-foreground">{row.numreparacao || "-"}</span>,
+      sortable: true,
+      width: "100px",
+    },
+    {
+      name: "Cliente",
+      selector: row => row.cliente_nome,
+      cell: row => <span className="text-foreground font-medium">{row.cliente_nome}</span>,
+      sortable: true,
+      wrap: true,
+    },
+    {
+      name: "Máquina",
+      selector: row => row.nomemaquina,
+      cell: row => <span className="text-muted-foreground">{row.nomemaquina}</span>,
+      sortable: true,
+      wrap: true,
+    },
+    {
+      name: "Centro",
+      selector: row => row.nomecentro,
+      cell: row => <span className="text-muted-foreground">{row.nomecentro || "-"}</span>,
+      sortable: true,
+      hide: "md",
+    },
+    {
+      name: "Entrada",
+      selector: row => row.dataentrega,
+      cell: row => (
+        <span className="text-muted-foreground text-sm">
+          {row.dataentrega ? new Date(row.dataentrega).toLocaleDateString("pt-PT") : "-"}
+        </span>
+      ),
+      sortable: true,
+      width: "110px",
+    },
+    {
+      name: "Conclusão",
+      selector: row => row.dataconclusao,
+      cell: row => (
+        <span className="text-muted-foreground text-sm">
+          {row.dataconclusao ? new Date(row.dataconclusao).toLocaleDateString("pt-PT") : "-"}
+        </span>
+      ),
+      sortable: true,
+      width: "110px",
+    },
+    {
+      name: "Ações",
+      width: "100px",
+      cell: (row) => (
+        <div className="flex items-center gap-1">
+          <button
+            onClick={(e) => { e.stopPropagation(); navigate(`/reparacoes/edit/${row.id}`) }}
+            className="p-2 rounded-md hover:bg-muted text-muted-foreground hover:text-primary transition-colors"
+            title="Editar"
+            data-testid={`edit-repair-${row.id}`}
+          >
+            <Pencil className="w-4 h-4" />
+          </button>
+          <button
+            onClick={(e) => handleDelete(row, e)}
+            className="p-2 rounded-md hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors"
+            title="Deletar"
+            data-testid={`delete-repair-${row.id}`}
+          >
+            <Trash2 className="w-4 h-4" />
+          </button>
         </div>
+      ),
+      ignoreRowClick: true,
+    },
+  ], [handleDelete, navigate, getStatus])
+
+  const handleExportPDF = () => {
+    const doc = new jsPDF()
+    const centerName = selectedCentro === 'all' ? 'Todos os Centros' : selectedCentro
+
+    doc.setFontSize(16)
+    doc.text(`Listagem de Reparações - ${centerName}`, 14, 15)
+    doc.setFontSize(10)
+    doc.setTextColor(100)
+    doc.text(`Gerado em: ${new Date().toLocaleDateString()} às ${new Date().toLocaleTimeString()}`, 14, 22)
+
+    const tableColumn = ["Nº Rep", "Cliente", "Máquina", "Centro", "Entrada", "Conclusão", "Status"]
+    const tableRows = []
+
+    filteredReparacoes.forEach(reparacao => {
+      const statusId = getStatus(reparacao)
+      const statusLabel = statusConfig[statusId]?.label || "Pendente"
+      tableRows.push([
+        reparacao.numreparacao || "",
+        reparacao.cliente_nome || "",
+        reparacao.nomemaquina || "",
+        reparacao.nomecentro || "",
+        reparacao.dataentrega ? new Date(reparacao.dataentrega).toLocaleDateString('pt-PT') : "-",
+        reparacao.dataconclusao ? new Date(reparacao.dataconclusao).toLocaleDateString('pt-PT') : "-",
+        statusLabel
+      ])
+    })
+
+    autoTable(doc, {
+      head: [tableColumn],
+      body: tableRows,
+      startY: 28,
+      styles: { fontSize: 8 },
+      headStyles: { fillColor: [0, 122, 255] },
+      alternateRowStyles: { fillColor: [245, 245, 245] }
+    })
+
+    doc.save(`reparacoes_${centerName.replace(/ /g, "_").toLowerCase()}.pdf`)
+  }
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-[60vh]" data-testid="repairs-loading">
+        <div className="flex flex-col items-center gap-3">
+          <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+          <p className="text-muted-foreground text-sm">A carregar reparações...</p>
+        </div>
+      </div>
     )
+  }
+
+  return (
+    <div className="space-y-6 animate-fadeIn" data-testid="repairs-list">
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div>
+          <h1 className="text-3xl font-heading font-bold text-foreground">Reparações</h1>
+          <p className="text-muted-foreground mt-1">Gestão de reparações e manutenções</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handleExportPDF}
+            className="flex items-center gap-2 px-4 py-2.5 bg-card border border-border rounded-md text-sm font-medium text-foreground hover:bg-muted transition-colors"
+            data-testid="export-pdf"
+          >
+            <FileDown className="w-4 h-4" />
+            Exportar PDF
+          </button>
+          <button
+            onClick={() => navigate("/reparacoes/registo")}
+            className="flex items-center gap-2 px-4 py-2.5 bg-primary text-primary-foreground rounded-md text-sm font-medium hover:bg-primary/90 transition-colors"
+            data-testid="new-repair"
+          >
+            <Plus className="w-4 h-4" />
+            Nova Reparação
+          </button>
+        </div>
+      </div>
+
+      {/* Stats Cards */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        {statCardsConfig.map((card, index) => {
+          const Icon = card.icon
+          const colorClasses = {
+            orange: "bg-orange/10 text-orange border-orange/20",
+            info: "bg-info/10 text-info border-info/20",
+            success: "bg-success/10 text-success border-success/20",
+            primary: "bg-primary/10 text-primary border-primary/20",
+          }
+          return (
+            <div key={index} className="bg-card border border-border rounded-lg p-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-2xl font-heading font-bold text-foreground">{card.value}</p>
+                  <p className="text-sm text-muted-foreground">{card.label}</p>
+                </div>
+                <div className={cn("p-2.5 rounded-lg border", colorClasses[card.color])}>
+                  <Icon className="w-5 h-5" />
+                </div>
+              </div>
+            </div>
+          )
+        })}
+      </div>
+
+      {/* Filters & Table */}
+      <div className="bg-card border border-border rounded-lg overflow-hidden">
+        {/* Toolbar */}
+        <div className="p-4 border-b border-border">
+          <div className="flex flex-col lg:flex-row gap-4">
+            {/* Search */}
+            <div className="flex-1 relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+              <input
+                type="text"
+                placeholder="Pesquisar por cliente, máquina ou número..."
+                className="w-full pl-10 pr-4 py-2.5 bg-background border border-border rounded-md text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                data-testid="search-input"
+              />
+            </div>
+
+            {/* Filters */}
+            <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2">
+                <Filter className="w-4 h-4 text-muted-foreground" />
+                <select
+                  className="px-3 py-2.5 bg-background border border-border rounded-md text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+                  value={selectedCentro}
+                  onChange={(e) => setSelectedCentro(e.target.value)}
+                  data-testid="filter-centro"
+                >
+                  <option value="all">Todos os Centros</option>
+                  {centros.map(c => (
+                    <option key={c.id} value={c.nome}>{c.nome}</option>
+                  ))}
+                </select>
+              </div>
+
+              <select
+                className="px-3 py-2.5 bg-background border border-border rounded-md text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+                value={filterStatus}
+                onChange={(e) => setFilterStatus(e.target.value)}
+                data-testid="filter-status"
+              >
+                <option value="all">Todos os Status</option>
+                <option value="pendente">Pendente</option>
+                <option value="andamento">Em Andamento</option>
+                <option value="pronta">Pronta</option>
+                <option value="entregue">Entregue</option>
+                <option value="sem_reparacao">Sem Reparação</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        {/* Data Table */}
+        <DataTable
+          columns={columns}
+          data={filteredReparacoes}
+          pagination
+          paginationPerPage={perPage}
+          paginationRowsPerPageOptions={[10, 15, 20, 30]}
+          paginationDefaultPage={currentPage}
+          onChangePage={setCurrentPage}
+          onChangeRowsPerPage={setPerPage}
+          highlightOnHover
+          pointerOnHover
+          onRowClicked={(row) => navigate(`/reparacoes/view/${row.id}`)}
+          responsive
+          customStyles={customStyles}
+          noDataComponent={
+            <div className="py-12 text-center">
+              <XCircle className="w-12 h-12 mx-auto text-muted-foreground/30 mb-3" />
+              <p className="text-muted-foreground">Nenhuma reparação encontrada</p>
+            </div>
+          }
+        />
+      </div>
+    </div>
+  )
 }
 
 export default ReparacoesView
