@@ -454,7 +454,7 @@ function ReparacoesRegisto() {
                 </div>
               )}
               <div className="grid grid-cols-12 gap-3">
-                <div className="col-span-4">
+            <div className="col-span-3">
                   <label className="block text-xs text-muted-foreground mb-1">Peça</label>
                   <input
                     list="pecas-list"
@@ -495,6 +495,17 @@ function ReparacoesRegisto() {
                     step="0.01"
                   />
                 </div>
+            <div className="col-span-1">
+              <label className="block text-xs text-muted-foreground mb-1">Desc.(%)</label>
+              <input
+                type="number"
+                className="w-full px-2 py-2 bg-background border border-border rounded-md text-sm text-foreground text-center focus:outline-none focus:ring-2 focus:ring-primary/20"
+                value={novaPeca.desconto_percentual}
+                onChange={e => setNovaPeca({ ...novaPeca, desconto_percentual: e.target.value })}
+                min="0"
+                max="100"
+              />
+            </div>
                 <div className="col-span-2 flex items-end gap-1">
                   {editingId ? (
                     <>

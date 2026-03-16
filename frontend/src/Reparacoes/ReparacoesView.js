@@ -145,9 +145,10 @@ function ReparacoesView() {
   }, [id, reparacao])
 
   const financeiros = useMemo(() => {
-    if (!reparacao) return { totalPecas: 0, maoObra: 0, totalGeral: 0, totalComIva: 0 }
+    if (!reparacao) return { totalPecas: 0, descontoTotal: 0, maoObra: 0, totalGeral: 0, totalComIva: 0 }
 
     let totalPecas = 0
+    let descontoTotal = 0
     pecas.forEach(p => {
       if (p.is_text) return
       const pu = Number(p.preco_unitario) || 0
@@ -155,6 +156,7 @@ function ReparacoesView() {
       const descPct = Number(p.desconto_percentual) || 0
       const precoComDesc = Math.max(0, pu * (1 - descPct / 100))
       totalPecas += (precoComDesc * qtd)
+      descontoTotal += (pu * qtd * (descPct / 100))
     })
 
     const maoObra = Number(reparacao.mao_obra) || 0
@@ -162,6 +164,7 @@ function ReparacoesView() {
 
     return {
       totalPecas,
+      descontoTotal,
       maoObra,
       totalGeral,
       totalComIva: totalGeral * 1.23
@@ -435,6 +438,12 @@ function ReparacoesView() {
                 <span className="text-white/70">Total Peças</span>
                 <span className="font-medium">{formatCurrency(financeiros.totalPecas)}</span>
               </div>
+              {financeiros.descontoTotal > 0 && (
+                <div className="flex justify-between text-sm">
+                  <span className="text-white/70">Desconto Total</span>
+                  <span className="font-medium text-white">-{formatCurrency(financeiros.descontoTotal)}</span>
+                </div>
+              )}
               <div className="flex justify-between text-sm">
                 <span className="text-white/70">Mão de Obra</span>
                 <span className="font-medium">{formatCurrency(financeiros.maoObra)}</span>
