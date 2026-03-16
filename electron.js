@@ -55,6 +55,11 @@ app.on('window-all-closed', () => {
     }
 });
 
+// Forçar o encerramento do processo (mata o servidor backend fantasma)
+app.on('quit', () => {
+    process.exit(0);
+});
+
 app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
         createWindow();
