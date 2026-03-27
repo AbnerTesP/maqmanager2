@@ -87,7 +87,7 @@ function ReparacoesView() {
     try {
       const [repRes, pecasRes] = await Promise.all([
         axios.get(`${API_BASE_URL}/reparacoes/${reparacaoId}`),
-        axios.get(`${API_BASE_URL}/reparacoes/${reparacaoId}/pecas`).catch(() => ({ data: [] }))
+        axios.get(`${API_BASE_URL}/reparacoes/${reparacaoId}/pecas`).catch(() => ({ data: [] })) 
       ])
 
       if (repRes.data) {
@@ -116,11 +116,11 @@ function ReparacoesView() {
     }
   }, [id, reparacao, navigate])
 
-  const handleGeneratePdf = useCallback(async (action = 'view') => {
+  const handleGeneratePdf = useCallback(async (pages = 'all', action = 'view') => {
     if (!reparacao) return
 
     try {
-      const response = await axios.get(`${API_BASE_URL}/reparacoes/${id}/orcamento-pdf`, {
+      const response = await axios.get(`${API_BASE_URL}/reparacoes/${id}/pdf?pages=${pages}`, {
         responseType: 'blob'
       })
 
@@ -472,24 +472,53 @@ function ReparacoesView() {
             <h3 className="text-lg font-heading font-bold text-foreground mb-4 text-center">
               Gerar Orçamento PDF
             </h3>
-            <div className="flex flex-col gap-3">
-              <button
-                onClick={() => handleGeneratePdf('view')}
-                className="flex items-center justify-center gap-2 px-4 py-3 bg-primary text-primary-foreground rounded-md font-medium hover:bg-primary/90 transition-colors"
-              >
-                <Eye className="w-5 h-5" />
-                Visualizar PDF
-              </button>
-              <button
-                onClick={() => handleGeneratePdf('download')}
-                className="flex items-center justify-center gap-2 px-4 py-3 bg-card border border-border rounded-md font-medium text-foreground hover:bg-muted transition-colors"
-              >
-                <FileDown className="w-5 h-5" />
-                Download PDF
-              </button>
+            <div className="flex flex-col gap-4">
+              <p className="text-sm text-muted-foreground text-center mb-2">
+                Escolha as páginas e a ação desejada:
+              </p>
+
+              {/* Opção: Completo */}
+              <div className="flex flex-col gap-2 p-3 bg-muted/30 border border-border rounded-lg">
+                <span className="text-sm font-medium text-center text-foreground">(Orçamento + Aprovação)</span>
+                <div className="flex gap-2">
+                  <button onClick={() => handleGeneratePdf('all', 'view')} className="flex-1 flex items-center justify-center gap-1.5 py-2 bg-primary text-primary-foreground rounded-md text-xs font-medium hover:bg-primary/90 transition-colors">
+                    <Eye className="w-4 h-4" /> Visualizar
+                  </button>
+                  <button onClick={() => handleGeneratePdf('all', 'download')} className="flex-1 flex items-center justify-center gap-1.5 py-2 bg-card border border-border text-foreground rounded-md text-xs font-medium hover:bg-muted transition-colors">
+                    <FileDown className="w-4 h-4" /> Download
+                  </button>
+                </div>
+              </div>
+
+              {/* Opção: Pág 1 */}
+              <div className="flex flex-col gap-2 p-3 bg-muted/30 border border-border rounded-lg">
+                <span className="text-sm font-medium text-center text-foreground">Orçamento (Pág. 1)</span>
+                <div className="flex gap-2">
+                  <button onClick={() => handleGeneratePdf('1', 'view')} className="flex-1 flex items-center justify-center gap-1.5 py-2 bg-primary text-primary-foreground rounded-md text-xs font-medium hover:bg-primary/90 transition-colors">
+                    <Eye className="w-4 h-4" /> Visualizar
+                  </button>
+                  <button onClick={() => handleGeneratePdf('1', 'download')} className="flex-1 flex items-center justify-center gap-1.5 py-2 bg-card border border-border text-foreground rounded-md text-xs font-medium hover:bg-muted transition-colors">
+                    <FileDown className="w-4 h-4" /> Download
+                  </button>
+                </div>
+              </div>
+
+              {/* Opção: Pág 2 */}
+              <div className="flex flex-col gap-2 p-3 bg-muted/30 border border-border rounded-lg">
+                <span className="text-sm font-medium text-center text-foreground">Folha de Aprovação (Pág. 2)</span>
+                <div className="flex gap-2">
+                  <button onClick={() => handleGeneratePdf('2', 'view')} className="flex-1 flex items-center justify-center gap-1.5 py-2 bg-primary text-primary-foreground rounded-md text-xs font-medium hover:bg-primary/90 transition-colors">
+                    <Eye className="w-4 h-4" /> Visualizar
+                  </button>
+                  <button onClick={() => handleGeneratePdf('2', 'download')} className="flex-1 flex items-center justify-center gap-1.5 py-2 bg-card border border-border text-foreground rounded-md text-xs font-medium hover:bg-muted transition-colors">
+                    <FileDown className="w-4 h-4" /> Download
+                  </button>
+                </div>
+              </div>
+
               <button
                 onClick={() => setShowPdfModal(false)}
-                className="px-4 py-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
+                className="px-4 py-2 mt-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
               >
                 Cancelar
               </button>

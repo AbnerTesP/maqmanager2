@@ -1661,6 +1661,8 @@ app.put("/reparacoes/:id", async (req, res) => {
         numreparacao,
         cliente_id,
         mao_obra,
+        totalPecas,
+        totalGeral,
         pecasNecessarias,
         pecas, // Novo campo para compatibilidade com o novo frontend
         descricao,
@@ -1704,7 +1706,17 @@ app.put("/reparacoes/:id", async (req, res) => {
 
         // Determinar datas de orçamento baseado no estado
         let updateOrcamentoFields = ""
+        let updateTotalsFields = ""
         const extraParams = []
+
+        if (totalPecas !== undefined) {
+            updateTotalsFields += ", totalPecas = ?"
+            extraParams.push(Number(totalPecas) || 0)
+        }
+        if (totalGeral !== undefined) {
+            updateTotalsFields += ", totalGeral = ?"
+            extraParams.push(Number(totalGeral) || 0)
+        }
 
         if (estadoorcamento) {
             if (estadoorcamento.toLowerCase().includes("aceite") || estadoorcamento.toLowerCase().includes("aceito")) {
@@ -1741,6 +1753,7 @@ app.put("/reparacoes/:id", async (req, res) => {
         cliente_id = ?,
         mao_obra = ?,
         descricao = ?
+        ${updateTotalsFields}
         ${updateOrcamentoFields}
         ${resetarAlarme}
       WHERE id = ?
@@ -1764,6 +1777,41 @@ app.put("/reparacoes/:id", async (req, res) => {
 
         const [result] = await pool.execute(sql, params)
         if (result.affectedRows === 0) return res.status(404).json({ error: "Reparação não encontrada" })
+
+        // ==================== ATUALIZAÇÃO DAS PEÇAS ====================
+        if (Array.isArray(pecasNecessarias)) {
+            console.log(`🔧 Atualizando ${pecasNecessarias.length} peças para a reparação ${id}...`);
+            // Apagar as peças antigas associadas a esta reparação
+            await pool.execute("DELETE FROM pecas_reparacao WHERE reparacao_id = ?", [id]);
+            
+            // Inserir as novas peças enviadas pelo frontend
+            for (let idx = 0; idx < pecasNecessarias.length; idx++) {
+                const peca = pecasNecessarias[idx];
+
+                const isText = peca.is_text === 1 || peca.is_text === true || peca.isText === true ? 1 : 0;
+                const textLinha = isText
+                    ? (peca.texto || peca.tipopeca || peca.observacao || "Linha de texto")
+                    : null;
+                const tipopeca = isText ? textLinha.substring(0, 255) : (peca.tipopeca || "");
+                const marca = isText ? "Texto" : (peca.marca || "");
+                const quantidade = isText ? 0 : (Number(peca.quantidade) || 1);
+                const preco_unitario = isText ? 0 : (Number(peca.preco_unitario) || 0);
+                const existe_no_sistema = peca.existe_no_sistema || peca.existeNoSistema ? 1 : 0;
+                const observacao = toNull(peca.observacao);
+                const desconto_percentual = isText ? 0 : (Number(peca.desconto_percentual) || 0);
+                const tipo_desconto = isText ? 'nenhum' : (peca.tipo_desconto || 'nenhum');
+                const ordem = peca.ordem != null ? Number(peca.ordem) : (idx + 1);
+
+                await pool.execute(`INSERT INTO pecas_reparacao(
+                    reparacao_id, tipopeca, marca, quantidade, preco_unitario, existe_no_sistema, observacao,
+                    desconto_percentual, tipo_desconto, is_text, texto, ordem
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, [
+                    id, tipopeca, marca, quantidade, preco_unitario, existe_no_sistema, observacao,
+                    desconto_percentual, tipo_desconto, isText, toNull(textLinha), ordem
+                ]);
+            }
+        }
+        // ===============================================================
 
         // 🔍 VERIFICAR ALARMES IMEDIATOS APÓS ATUALIZAÇÃO
         console.log(`🔍 Verificando alarmes imediatos após atualização para reparação: ${id}`)

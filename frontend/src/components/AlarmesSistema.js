@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect, useMemo } from "react"
-import { useNavigate } from "react-router-dom"
+import { Link, useNavigate } from "react-router-dom"
 import { cn } from "../lib/utils"
 import {
   Bell,
@@ -75,11 +75,11 @@ function AlarmDetailModal({ alarm, onClose, onMarkAsSeen }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4" data-testid="alarm-modal">
       {/* Backdrop */}
-      <div 
+      <div
         className="absolute inset-0 bg-background/80 backdrop-blur-sm"
         onClick={onClose}
       />
-      
+
       {/* Modal */}
       <div className="relative w-full max-w-lg bg-card border border-border rounded-lg shadow-xl animate-fadeIn">
         {/* Header */}
@@ -97,7 +97,7 @@ function AlarmDetailModal({ alarm, onClose, onMarkAsSeen }) {
               </p>
             </div>
           </div>
-          <button 
+          <button
             onClick={onClose}
             className="p-2 rounded-md hover:bg-muted transition-colors text-muted-foreground hover:text-foreground"
             data-testid="close-modal"
@@ -117,7 +117,12 @@ function AlarmDetailModal({ alarm, onClose, onMarkAsSeen }) {
               </div>
               <div>
                 <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-1">Nº Reparação</p>
-                <p className="font-mono font-medium text-foreground">#{alarm.numreparacao || alarm.id}</p>
+                <Link
+                  to={`/reparacoes/edit/${alarm.id}`}
+                  className="font-mono font-medium text-primary hover:underline"
+                >
+                  #{alarm.numreparacao || alarm.id}
+                </Link>
               </div>
               <div>
                 <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-1">Cliente</p>
@@ -157,7 +162,7 @@ function AlarmDetailModal({ alarm, onClose, onMarkAsSeen }) {
           {/* Contact Info */}
           <div className="flex flex-wrap gap-3 pt-2 border-t border-border">
             {alarm.cliente_telefone && (
-              <a 
+              <a
                 href={`tel:${alarm.cliente_telefone}`}
                 className="flex items-center gap-2 text-sm text-muted-foreground hover:text-primary transition-colors"
               >
@@ -166,7 +171,7 @@ function AlarmDetailModal({ alarm, onClose, onMarkAsSeen }) {
               </a>
             )}
             {alarm.cliente_email && (
-              <a 
+              <a
                 href={`mailto:${alarm.cliente_email}`}
                 className="flex items-center gap-2 text-sm text-muted-foreground hover:text-primary transition-colors"
               >
@@ -219,7 +224,7 @@ function AlarmCard({ alarm, onClick }) {
     >
       {/* Priority Indicator */}
       <div className={cn("absolute top-0 left-0 w-1 h-full rounded-l-lg", config.dotClass)} />
-      
+
       <div className="pl-2">
         {/* Header */}
         <div className="flex items-start justify-between gap-2 mb-3">
@@ -267,11 +272,11 @@ export default function AlarmesSistema() {
   const [stats, setStats] = useState({})
   const [loading, setLoading] = useState(true)
   const [selectedAlarme, setSelectedAlarme] = useState(null)
-  
+
   const [filtroAtivo, setFiltroAtivo] = useState(() => sessionStorage.getItem('alarmesFiltroAtivo') || "todos")
   const [searchTerm, setSearchTerm] = useState("")
   const [currentPage, setCurrentPage] = useState(1)
-  
+
   const ITEMS_PER_PAGE = 9
 
   const fetchAlarmes = async () => {
@@ -318,8 +323,8 @@ export default function AlarmesSistema() {
     return alarmes.filter(a => {
       const matchesFilter = filtroAtivo === "todos" ? true :
         filtroAtivo === "criticos" ? a.prioridade === "Crítico" :
-        filtroAtivo === "altos" ? a.prioridade === "Alto" :
-        filtroAtivo === "medios" ? a.prioridade === "Médio" : true
+          filtroAtivo === "altos" ? a.prioridade === "Alto" :
+            filtroAtivo === "medios" ? a.prioridade === "Médio" : true
 
       if (!matchesFilter) return false
       if (!searchTerm) return true
@@ -425,8 +430,8 @@ export default function AlarmesSistema() {
           <CheckCircle className="w-16 h-16 text-success/30 mb-4" />
           <h3 className="text-lg font-medium text-foreground mb-1">Tudo em ordem!</h3>
           <p className="text-muted-foreground text-center max-w-md">
-            {searchTerm 
-              ? "Nenhum alerta encontrado para esta pesquisa." 
+            {searchTerm
+              ? "Nenhum alerta encontrado para esta pesquisa."
               : "Não existem alertas ativos nesta categoria."}
           </p>
         </div>
@@ -453,7 +458,7 @@ export default function AlarmesSistema() {
               >
                 <ChevronLeft className="w-4 h-4" />
               </button>
-              
+
               <div className="flex items-center gap-1">
                 {[...Array(totalPages)].map((_, i) => (
                   <button
