@@ -18,7 +18,8 @@ import {
   Package,
   Folder,
   Filter,
-  XCircle
+  XCircle,
+  Copy
 } from "lucide-react"
 
 const API_BASE_URL = "http://localhost:8082"
@@ -366,6 +367,14 @@ function ReparacoesView() {
           >
             <FileDown className="w-4 h-4" />
             Exportar PDF
+          </button>
+          <button
+            onClick={() => navigate("/reparacoes/copiar")}
+            className="flex items-center gap-2 px-4 py-2.5 bg-card border border-border rounded-md text-sm font-medium text-foreground hover:bg-muted transition-colors"
+            data-testid="copiar-artigos"
+          >
+            <Copy className="w-4 h-4" />
+            Copiar Artigos
           </button>
           <button
             onClick={() => navigate("/reparacoes/registo")}

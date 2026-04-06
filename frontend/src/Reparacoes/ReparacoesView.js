@@ -23,7 +23,8 @@ import {
   AlertTriangle,
   FileText,
   Printer,
-  Eye
+  Eye,
+  Copy
 } from "lucide-react"
 
 const API_BASE_URL = "http://localhost:8082"
@@ -228,6 +229,14 @@ function ReparacoesView() {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          <button
+            onClick={() => navigate(`/reparacoes/copiar/${id}`)}
+            className="flex items-center gap-2 px-4 py-2.5 bg-card border border-border rounded-md text-sm font-medium text-foreground hover:bg-muted transition-colors"
+            data-testid="copiar-artigos"
+          >
+            <Copy className="w-4 h-4" />
+            Copiar Artigos
+          </button>
           <button
             onClick={() => setShowPdfModal(true)}
             className="flex items-center gap-2 px-4 py-2.5 bg-card border border-border rounded-md text-sm font-medium text-foreground hover:bg-muted transition-colors"

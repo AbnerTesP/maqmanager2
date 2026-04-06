@@ -10,6 +10,7 @@ import ReparacoesEdit from './Reparacoes/ReparacoesEdit';
 import ReparacoesView from './Reparacoes/ReparacoesView';
 import ClientesList from "./components/ClientesList";
 import AlarmesSistema from "./components/AlarmesSistema";
+import CopiarArtigos from "./Reparacoes/CopiarArtigos";
 import './index.css';
 
 function App() {
@@ -22,6 +23,8 @@ function App() {
           <Route path="/reparacoes/registo" element={<ReparacoesRegisto />} />
           <Route path="/reparacoes/edit/:id" element={<ReparacoesEdit />} />
           <Route path="/reparacoes/view/:id" element={<ReparacoesView />} />
+          <Route path="/reparacoes/copiar" element={<CopiarArtigos />} />
+          <Route path="/reparacoes/copiar/:id" element={<CopiarArtigos />} />
           <Route path="/clientes" element={<ClientesList />} />
           <Route path="/alarmes" element={<AlarmesSistema />} />
           <Route path="*" element={<NotFound />} />
