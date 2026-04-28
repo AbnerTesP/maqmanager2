@@ -138,15 +138,17 @@ function ReparacoesEdit() {
       totalPecas += (precoComDesc * qtd)
     })
 
-    const totalGeral = Math.max(0, totalPecas + valorMaoObra)
+    const descMOValor = valorMaoObra * (desconto / 100)
+    const moFinal = Math.max(0, valorMaoObra - descMOValor)
+    const totalGeral = totalPecas + moFinal
 
     return {
       totalPecas,
-      subtotalMO: valorMaoObra,
+      moFinal,
       totalGeral,
       totalComIva: totalGeral * 1.23
     }
-  }, [pecasNecessarias, valorMaoObra])
+  }, [pecasNecessarias, valorMaoObra, desconto])
 
   const validarPeca = () => {
     if (!novaPeca.tipopeca || !novaPeca.marca) {
@@ -713,7 +715,7 @@ function ReparacoesEdit() {
                 </div>
                 <div className="flex justify-between">
                   <span className="text-white/70">Mão Obra</span>
-                  <span className="font-medium">{formatCurrency(financeiros.subtotalMO)}</span>
+                  <span className="font-medium">{formatCurrency(financeiros.moFinal)}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-white/70">Total s/ IVA</span>

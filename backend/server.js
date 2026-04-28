@@ -1718,6 +1718,8 @@ app.put("/reparacoes/:id", async (req, res) => {
             extraParams.push(Number(totalGeral) || 0)
         }
 
+
+        
         if (estadoorcamento) {
             if (estadoorcamento.toLowerCase().includes("aceite") || estadoorcamento.toLowerCase().includes("aceito")) {
                 updateOrcamentoFields = ", data_orcamento_aceito = COALESCE(data_orcamento_aceito, ?)"
