@@ -1,4 +1,5 @@
 const { app, BrowserWindow, dialog } = require('electron');
+const { autoUpdater } = require('electron-updater');
 const path = require('path');
 
 // Substituição segura para o electron-is-dev
@@ -44,10 +45,31 @@ function createWindow() {
     if (isDev) {
         mainWindow.webContents.openDevTools();
     }
+
+    return mainWindow;
 }
 
 // Quando o electron estiver pronto, cria a janela
-app.whenReady().then(createWindow);
+app.whenReady().then(() => {
+    const win = createWindow();
+
+    if (!isDev) {
+        autoUpdater.checkForUpdates();
+
+        autoUpdater.on('update-downloaded', () => {
+            dialog.showMessageBox(win, {
+                type: 'info',
+                title: 'Atualização disponível',
+                message: 'Uma nova versão do MaqManager foi instalada e está pronta.\nA aplicação vai reiniciar para aplicar a atualização.',
+                buttons: ['Reiniciar agora', 'Mais tarde']
+            }).then((result) => {
+                if (result.response === 0) {
+                    autoUpdater.quitAndInstall();
+                }
+            });
+        });
+    }
+});
 
 app.on('window-all-closed', () => {
     if (process.platform !== 'darwin') {
